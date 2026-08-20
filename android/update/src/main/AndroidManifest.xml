@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+      Lets the app hand an APK to the system installer.
+
+      This is NOT a silent-install permission — the system still shows its own
+      confirmation dialog, and on Android 8+ the user must additionally have
+      allowed this specific app to install unknown apps. That is the correct
+      amount of friction for something that replaces the app on a working
+      phone, and we do not try to route around it.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <application>
+        <!--
+          PackageInstaller reports asynchronously, including the
+          STATUS_PENDING_USER_ACTION that carries the confirmation dialog we
+          have to launch ourselves. Without a registered receiver the install
+          simply never happens and nothing says why.
+        -->
+        <receiver
+            android:name=".InstallResultReceiver"
+            android:exported="false" />
+    </application>
+</manifest>

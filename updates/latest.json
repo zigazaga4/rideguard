@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "publishedAt": "2026-08-20T17:00:00Z",
+  "notes": "No release published yet. Run ./release.sh to publish one.",
+  "mandatory": false
+}
