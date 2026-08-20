@@ -1,8 +1,8 @@
 # RideGuard
 
 Reads the ride offer on screen in **Bolt Driver** and **Uber Driver**, works out
-what the ride *actually* pays after commission, fuel and wear, and shows it in a
-small floating window while the driver still has time to decide.
+what the ride *actually* pays per kilometre after fuel, and shows it in a small
+floating window while the driver still has time to decide.
 
 Everything happens on the phone. Nothing is sent anywhere.
 
@@ -13,15 +13,16 @@ Everything happens on the phone. Nothing is sent anywhere.
 Both platforms show a fare. Neither shows:
 
 - the fuel burned driving to the passenger (the **deadhead** leg),
-- tyres, servicing and depreciation on those kilometres,
+- what the fare works out to **per kilometre actually driven**,
 - what the ride works out to **per hour**.
 
 A driver gets roughly **10–15 seconds** to accept. Nobody does that arithmetic
 in ten seconds, so the bad offers that *look* fine get accepted all shift.
 
 The number that catches them is the **deadhead ratio** — pickup km ÷ trip km.
-A 6 lei ride with a 5 km pickup and a 2 km trip is a straight loss, and it does
-not look like one under time pressure.
+A real example, straight off a Bolt card: **11,62 lei**, 2.8 km to collect,
+3 km carrying. Half the driving is unpaid, it works out to 42 lei/hour before
+anything goes wrong, and none of that is visible under time pressure.
 
 ---
 
@@ -32,6 +33,8 @@ co/
 ├── android/     Kotlin. The real app. Reads the screen, draws the HUD.
 ├── mock/        Expo. Fake Bolt/Uber offer screens for testing without real rides.
 ├── ios/         Swift. Domain parity + manual entry + Vision OCR share extension.
+├── updates/     latest.json — the manifest every installed app polls.
+├── release.sh   Bump, build, sign, publish, point the manifest at it.
 └── docs/
 ```
 
@@ -75,9 +78,9 @@ flowchart TD
   SEL -->|uber| UP["UberOfferParser"]
   BP --> RO["RideOffer"]
   UP --> RO
-  RO --> CALC["ProfitCalculator<br/>commission · fuel · wear"]
+  RO --> CALC["ProfitCalculator<br/>fuel on every km driven"]
   CALC --> V["Verdict<br/>green / amber / red / unknown"]
-  V --> HUD["Draggable HUD<br/>TYPE_ACCESSIBILITY_OVERLAY"]
+  V --> HUD["Inert HUD<br/>TYPE_ACCESSIBILITY_OVERLAY"]
 ```
 
 Three readers, one `ScreenSource` interface, and nothing downstream can tell
@@ -106,10 +109,13 @@ permission at all, **and** immunity to `Window.setHideOverlayWindows(true)` —
 an API available since Android 12 that force-hides ordinary overlays. If either
 driver app ever switches that on, an ordinary overlay just vanishes.
 
-**4. The HUD is clamped out of the bottom 34% of the screen.** Android silently
-discards touches arriving at a view with `filterTouchesWhenObscured="true"`
-while another window overlaps it. Cover the Accept button and the driver taps,
-nothing happens, the offer expires. The clamp is not a nicety.
+**4. The HUD cannot be touched, and is clamped out of the bottom 34% of the
+screen.** Android silently discards touches arriving at a view with
+`filterTouchesWhenObscured="true"` while another window overlaps it. Cover the
+Accept button and the driver taps, nothing happens, the offer expires. The
+window therefore sets `FLAG_NOT_TOUCHABLE` so every touch passes straight
+through, *and* stays out of the Accept zone. Belt and braces, because the
+failure costs a real ride.
 
 **5. Cost is charged on the *full* distance.** Pickup plus trip, not just the
 paid leg. That gap is where the money quietly disappears, and closing it is the
@@ -152,17 +158,44 @@ npx expo run:android
 
 Then:
 
-1. Open RideGuard → onboarding asks for **car, fuel type, consumption per
-   100 km, fuel price**, then wear per km, then your targets.
+1. Open RideGuard → onboarding asks two things: **fuel type + consumption per
+   100 km**, and **fuel price**. That is the whole setup. Targets start at
+   sensible defaults and are editable later in Settings.
 2. Enable **Settings → Accessibility → RideGuard offer reader**.
 3. Grant the battery exemption (and the OEM autostart step it prompts for on
    Xiaomi / Huawei / Oppo / Vivo / Samsung — those kill background services
    regardless of what stock Android allows).
 4. Open the mock, tap a preset, hit **Fire offer**.
 
-Verify: HUD appears fast, numbers match, `Classic trap` reads red and negative,
-`Single distance` reads dimmed/UNKNOWN, the HUD cannot be dragged over Accept,
-and it does not flicker as the countdown ticks.
+Verify: HUD appears fast, numbers match, `Classic trap` reads red, `Single
+distance` reads dimmed/UNKNOWN, taps land on the Accept button *through* the
+HUD, and it does not flicker as the countdown ticks.
+
+---
+
+## Updating without a store
+
+RideGuard is not in Google Play, so nothing in the OS will ever mention a new
+build. It updates itself from GitHub instead:
+
+```bash
+./release.sh 1.1.0 "Bolt fares are read as net now."
+```
+
+That bumps the version, builds and signs the APK, uploads it as a GitHub
+release, **confirms the asset is actually fetchable**, and only then publishes
+`updates/latest.json`. Installed apps poll that file, compare version codes,
+verify the SHA-256 of what they downloaded, and hand it to the system installer.
+Nothing installs itself unasked.
+
+The signing key is the load-bearing part: Android refuses to replace an app with
+one signed by a different key, so the keystore lives at `~/.rideguard/` outside
+the repo, and `release.sh` refuses to publish an APK whose certificate does not
+match it. **Back that keystore up** — losing it makes every existing install
+un-updatable.
+
+Full detail, including the iOS `itms-services://` path and what it costs:
+`docs/updates.md`.
 
 ---
 
@@ -189,16 +222,22 @@ reading order — headline fare in the largest type, deadhead leg above the paid
 leg. That is how both cards are actually laid out, and it passes every mock
 contract test, but it is the first thing to tighten once record mode has run.
 
-**Verify gross-vs-net against a real payout statement.** Whether the card shows
-the fare before or after commission varies by market. Getting it wrong skews
-every number by the commission rate. It is a per-platform setting for exactly
-this reason.
+**Gross-vs-net is settled for Romania, and was wrong before.** Both cards show
+the driver's **net** take — Bolt prints `11,62 lei (NET, taxe incluse)`, Uber
+prints `Câștig net (fără comisionul Uber)`. The app used to assume Bolt showed a
+gross fare and skimmed 20% off it, which made every Bolt offer read 20% worse
+than reality. Nothing crashed and no test failed; the numbers were simply,
+quietly wrong. Two regression tests now pin both cards to figures transcribed
+from real screenshots. If you take this to another market, verify it again
+against a payout statement — this is the easiest thing in the app to be
+confidently wrong about.
 
-**iOS is code-complete but unbuilt.** No Xcode on this machine, so nothing in
-`ios/` has been compiled or run. It also cannot do the overlay or screen
-reading — those are hard sandbox limits with no entitlement and no workaround.
-What it can do is the identical domain maths, onboarding, manual entry, history,
-and a Share Extension that OCRs a screenshot with Vision. Treat it as a draft.
+**iOS cannot do the main thing.** No system-wide overlay, no cross-app screen
+reading — hard sandbox limits, no entitlement, no workaround. So the iOS build
+is a different product wearing the same maths: manual quick entry, plus a Share
+Extension that OCRs a screenshot with Vision. It is also **unbuilt** — there is
+no Xcode on this machine, so nothing in `ios/` has been compiled. See
+`docs/ios-platform-limits.md`.
 
 **Third-party tools are against both platforms' driver terms.** A read-only
 advisory HUD is the low-risk end of that spectrum; auto-tapping Accept via
