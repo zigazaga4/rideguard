@@ -15,10 +15,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.rideguard.service.ProjectionCaptureService
 import com.rideguard.ui.RideGuardTheme
 import com.rideguard.ui.onboarding.OnboardingScreen
 import com.rideguard.ui.settings.SettingsScreen
+import com.rideguard.ui.update.UpdateScreen
+import com.rideguard.update.UpdateController
 
 class MainActivity : ComponentActivity() {
 
@@ -53,10 +56,16 @@ class MainActivity : ComponentActivity() {
 
         val settings = (application as RideGuardApp).settings
 
+        // Scoped to the activity, not to a composable: a 60 MB download must
+        // survive a rotation. Tying it to composition would restart the
+        // download every time the screen recreated.
+        val updates = UpdateController(applicationContext, lifecycleScope)
+
         setContent {
             RideGuardTheme {
                 val onboarded by settings.isOnboarded.collectAsState(initial = null)
                 var forceOnboarding by remember { mutableStateOf(false) }
+                var showUpdates by remember { mutableStateOf(false) }
 
                 when {
                     // null means DataStore has not answered yet. Rendering
@@ -72,9 +81,15 @@ class MainActivity : ComponentActivity() {
                         },
                     )
 
+                    showUpdates -> UpdateScreen(
+                        controller = updates,
+                        onBack = { showUpdates = false },
+                    )
+
                     else -> SettingsScreen(
                         settings = settings,
                         onReplayOnboarding = { forceOnboarding = true },
+                        onOpenUpdates = { showUpdates = true },
                     )
                 }
             }
