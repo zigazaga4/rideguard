@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Overlay permission.
+
+      NOTE: on the `sideload` flavour this is very nearly unnecessary — an
+      overlay added from inside an AccessibilityService uses
+      TYPE_ACCESSIBILITY_OVERLAY, which needs no grant at all AND cannot be
+      suppressed by an app calling Window.setHideOverlayWindows(true).
+      We keep the permission declared so the `play` flavour, and any fallback
+      path, still works.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!--
+      MediaProjection path (`play` flavour only in practice).
+      Android 14+ REQUIRES this dedicated foreground-service type, and the
+      service must already be in the foreground BEFORE getMediaProjection()
+      is called or the system throws.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
+    <!--
+      Aggressive OEM battery managers (Xiaomi, Huawei, Oppo, Vivo, Samsung)
+      will kill a background reader regardless of what stock Android allows.
+      Onboarding walks the driver through the exemption; see dontkillmyapp.com
+      for the per-vendor autostart screens.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- We only ever look at these two packages. Nothing else is queried. -->
+    <queries>
+        <package android:name="ee.mtakso.driver" />
+        <package android:name="com.ubercab.driver" />
+    </queries>
+
+    <application
+        android:name=".RideGuardApp"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.RideGuard"
+        tools:targetApi="35">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.RideGuard">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Only used by the OCR path. Declared in the shared manifest so both
+          flavours compile, but only started on the `play` flavour.
+        -->
+        <service
+            android:name=".service.ProjectionCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+    </application>
+</manifest>

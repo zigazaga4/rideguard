@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "RideGuard Mock",
+    "slug": "rideguard-mock",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "rideguardmock",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B0C0E",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.rideguard.mock"
+    },
+    "android": {
+      "package": "com.rideguard.mock",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0C0E",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  THE MOST IMPORTANT FILE IN THE APP FOR BATTERY LIFE.
+
+  `android:packageNames` restricts this service to Bolt Driver and Uber
+  Driver ONLY. Outside those two apps the service receives nothing, walks
+  nothing, and costs nothing. Remove that attribute and you get events from
+  every app on the phone, all day — which is the difference between an app
+  your friend keeps and one he uninstalls after a single shift.
+
+  `notificationTimeout` is the first line of debounce defence: it throttles
+  at the system level before an event ever reaches our process. The pipeline
+  debounces again on top of it.
+
+  `com.rideguard.mock` is the Expo test harness. It cannot claim Bolt's or
+  Uber's package name, so it declares which app it is imitating with an
+  on-screen `__rg_platform=` marker that OfferParserRegistry reads. Drop this
+  entry from a public release build; it is harmless but pointless there.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagIncludeNotImportantViews|flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/accessibility_service_description"
+    android:notificationTimeout="100"
+    android:packageNames="ee.mtakso.driver,com.ubercab.driver,com.rideguard.mock"
+    android:settingsActivity="com.rideguard.MainActivity" />

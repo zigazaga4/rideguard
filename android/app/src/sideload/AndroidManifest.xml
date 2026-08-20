@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sideload-only manifest.
+
+  The AccessibilityService is declared HERE and nowhere else, on purpose.
+  Google Play requires accessibility services to genuinely serve users with
+  disabilities, enforced through a Permissions Declaration Form, and a
+  ride-profit analyser does not qualify. Keeping the declaration out of the
+  `play` flavour means the Play build cannot even be accused of it.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <service
+            android:name=".service.RideGuardAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+    </application>
+</manifest>

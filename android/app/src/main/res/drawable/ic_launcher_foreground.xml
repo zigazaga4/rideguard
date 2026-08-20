@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Steering wheel over a rising bar — "what the ride actually pays". -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,28c-14.36,0 -26,11.64 -26,26s11.64,26 26,26 26,-11.64 26,-26 -11.64,-26 -26,-26zM54,34c9.5,0 17.5,6.3 20,15H34c2.5,-8.7 10.5,-15 20,-15zM40,63.5c0,-1.5 1,-2.5 2.5,-2.5h6c1.5,0 2.5,1 2.5,2.5v9c0,1.5 -1,2.5 -2.5,2.5 -4.6,-1.4 -8.5,-4.6 -8.5,-8.5zM57,72.5v-9c0,-1.5 1,-2.5 2.5,-2.5h6c1.5,0 2.5,1 2.5,2.5 0,3.9 -3.9,7.1 -8.5,8.5 -1.5,0 -2.5,-1 -2.5,-2.5z" />
+
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M46,52h4v6h-4zM58,52h4v6h-4z" />
+</vector>

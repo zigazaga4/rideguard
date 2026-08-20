@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RideGuard</string>
+
+    <string name="accessibility_service_label">RideGuard offer reader</string>
+    <string name="accessibility_service_description">Reads the ride offer currently on screen in Bolt and Uber, works out what the ride actually pays after fuel and wear, and shows it in a small floating window. Nothing is sent anywhere — all processing happens on this phone.</string>
+
+    <string name="capture_notification_title">RideGuard is reading offers</string>
+    <string name="capture_notification_text">Tap to open settings or stop</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_welcome_title">Know what the ride really pays</string>
+    <string name="onboarding_welcome_body">Bolt and Uber show you a fare. They do not show you the fuel to reach the passenger, the wear on your car, or what you actually earn per hour.\n\nRideGuard works that out and puts it on screen while you still have time to decide.</string>
+
+    <string name="onboarding_car_title">Your car</string>
+    <string name="onboarding_car_body">These two numbers are what make the maths real. Use your actual figures, not the manufacturer\'s.</string>
+
+    <string name="onboarding_wear_title">Running costs</string>
+    <string name="onboarding_wear_body">Fuel is only part of what a kilometre costs you. Tyres, servicing, brakes and depreciation typically add another 0.30–0.50 per km. Drivers who ignore this think they are earning more than they are.</string>
+
+    <string name="onboarding_targets_title">Your targets</string>
+    <string name="onboarding_targets_body">The offer turns green when it clears these, amber when it misses one, red when it misses more. You can change them any time — come back after a week of driving and set them properly.</string>
+
+    <string name="onboarding_permissions_title">One last step</string>
+</resources>

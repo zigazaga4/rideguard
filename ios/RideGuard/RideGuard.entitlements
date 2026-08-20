@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The app and the share extension are separate processes with separate
+	     containers. This group is the only thing they share, and it holds both
+	     the settings blob and history.json. Must match
+	     Persistence.appGroupIdentifier.
+
+	     Note what is NOT here, and cannot be: there is no entitlement on iOS
+	     for reading another app's screen or drawing over it. See
+	     docs/ios-platform-limits.md. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.rideguard.shared</string>
+	</array>
+</dict>
+</plist>
