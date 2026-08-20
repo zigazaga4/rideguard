@@ -38,20 +38,16 @@ final class AppState: ObservableObject {
 
     // MARK: - Evaluation
 
-    /// Commission comes from settings, per platform, because it is the number
-    /// most likely to be wrong out of the box — Bolt's take rate differs by
-    /// city and by driver contract.
-    func calculator(for platform: Platform) -> ProfitCalculator {
-        let rate = settings.commissionRate(for: platform)
-        return ProfitCalculator(
-            vehicle: settings.vehicle,
-            thresholds: settings.thresholds,
-            commissionRateFor: { _ in rate }
-        )
+    /// No commission override is passed: every platform defaults to zero
+    /// because both Romanian driver apps show the driver's own net take. The
+    /// calculator still models commission for markets where the card is gross,
+    /// which is what `fareIsNet` selects between.
+    var calculator: ProfitCalculator {
+        ProfitCalculator(vehicle: settings.vehicle, thresholds: settings.thresholds)
     }
 
     func evaluate(_ offer: RideOffer) -> OfferEconomics? {
-        calculator(for: offer.platform).evaluate(offer)
+        calculator.evaluate(offer)
     }
 
     /// Builds an offer from hand-typed values. `fareIsNet` is never asked at

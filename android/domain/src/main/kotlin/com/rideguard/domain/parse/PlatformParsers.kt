@@ -7,21 +7,28 @@ import com.rideguard.domain.model.ScreenSnapshot
  * Bolt Driver — `ee.mtakso.driver`
  * (Bolt was formerly Taxify, an Estonian company: hence the `ee` / `mtakso`.)
  *
- * TUNING NOTE: the keyword and product lists below are the first thing to
- * adjust once real fixtures land. Capture a shift with record mode on, then
- * tighten these against the actual strings Bolt renders in your market and
- * language.
+ * The Romanian card carries no "Comandă nouă" header at all — it is a chip
+ * row, a fare, two legs and two buttons. What it does show is `🚗 Bolt`,
+ * `💲 Numerar`, `Cerere mare 1.1x` and a white `✕ Refuză` pill floating on the
+ * map, so those are what the gate leans on.
  */
 class BoltOfferParser(
     hints: ParserHints = ParserHints(
         offerKeywords = ParserHints.DEFAULT_OFFER_KEYWORDS + listOf(
-            "bolt", "comandă nouă", "cursă nouă", "new order", "new ride",
+            "bolt", "comandă nouă", "cursă nouă", "cerere mare", "new order", "new ride",
         ),
     ),
 ) : HeuristicOfferParser(Platform.BOLT, hints) {
 
+    /**
+     * Order matters. "Bolt" is the base tier and is what the real chip says,
+     * but the word also appears in the mock harness's `__rg_platform=bolt`
+     * marker and in Bolt's own branding elsewhere on screen — so it goes LAST,
+     * where it can only win if no specific tier was found.
+     */
     private val products = listOf(
         "Comfort", "XL", "Green", "Pet", "Assist", "Business", "Bolt Plus", "Economy", "Send",
+        "Bolt",
     )
 
     override fun detectProduct(snapshot: ScreenSnapshot): String? {
@@ -33,15 +40,19 @@ class BoltOfferParser(
 /**
  * Uber Driver — `com.ubercab.driver`
  *
- * Uber's card usually reads "N min (X km) away" for the deadhead leg and
- * "M min (Y km) trip" for the paid leg, which the shared reading-order
- * heuristic already handles correctly. Uber also tends to show the fare
- * NET of commission, unlike Bolt — see [Platform.fareShownIsNetByDefault].
+ * The Romanian card reads `La 12 min. (5.4 km) distanță` for the deadhead and
+ * `Cursă: 57 min. (29.0 km)` for the paid leg — a label and a colon in front
+ * of the numbers on one, a trailing word on the other. Both fall out of the
+ * shared reading-order heuristic, since it never tries to pair a distance with
+ * the duration next to it.
+ *
+ * The fare is labelled `Câștig net (fără comisionul Uber)` — net of Uber's cut
+ * already, which is why [Platform.fareShownIsNetByDefault] is true.
  */
 class UberOfferParser(
     hints: ParserHints = ParserHints(
         offerKeywords = ParserHints.DEFAULT_OFFER_KEYWORDS + listOf(
-            "uber", "exclusive", "match", "surge", "promotion", "include",
+            "uber", "câștig net", "exclusive", "match", "surge", "promotion", "include",
         ),
     ),
 ) : HeuristicOfferParser(Platform.UBER, hints) {

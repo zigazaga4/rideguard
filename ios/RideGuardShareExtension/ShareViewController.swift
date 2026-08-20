@@ -11,11 +11,13 @@ import RideGuardCore
 //  screenshot and hits Share gets the same pipeline from `TokenScanner`
 //  downwards, and therefore the same verdict, as the Android build.
 //
-//  Xcode target membership: this target needs RideGuardCore plus two files
-//  from the app target — `App/Persistence.swift` (settings + history live in
-//  the App Group) and `App/Quick/VerdictCardView.swift` (one card, one
-//  rendering). It must carry the same App Group entitlement as the app, or it
-//  will read a default vehicle profile and give confidently wrong answers.
+//  Target membership is wired in `ios/project.yml`: this target needs
+//  RideGuardCore, the Vision reader in `RideGuard/Capture`, and three files
+//  from the app — `App/Persistence.swift` (settings and history live in the
+//  App Group), `App/Quick/VerdictCardView.swift` (one card, one rendering) and
+//  the `RideGuardLiveActivity` pair. It must carry the same App Group
+//  entitlement as the app, or it will read a default vehicle profile and give
+//  confidently wrong answers.
 
 final class ShareViewController: UIViewController {
 
@@ -105,16 +107,11 @@ final class ShareModel: ObservableObject {
             return
         }
 
-        let rate = settings.commissionRate(for: offer.platform)
-        let calculator = ProfitCalculator(
-            vehicle: settings.vehicle,
-            thresholds: settings.thresholds,
-            commissionRateFor: { _ in rate }
-        )
+        let calculator = ProfitCalculator(vehicle: settings.vehicle, thresholds: settings.thresholds)
 
         guard let economics = calculator.evaluate(offer) else {
             state = .unreadable(
-                reason: "Read the fare, but not both legs of the journey — without the pickup distance the real cost cannot be worked out.",
+                reason: "Read the card, but not a fare and a distance together — there is nothing to do the arithmetic on.",
                 recognizedText: result.recognizedText
             )
             return
@@ -128,6 +125,11 @@ final class ShareModel: ObservableObject {
         let entry = HistoryEntry(economics: economics, source: .screenshot)
         loggedEntryID = entry.id
         historyStore.append(entry)
+
+        // Best-effort, and allowed to do nothing: whether an app extension may
+        // start a Live Activity varies by OS version. The verdict is already on
+        // screen, so a failure here costs the driver nothing.
+        LiveActivityController.show(economics, enabled: settings.liveActivityEnabled)
     }
 
     func record(_ decision: HistoryEntry.Decision) {

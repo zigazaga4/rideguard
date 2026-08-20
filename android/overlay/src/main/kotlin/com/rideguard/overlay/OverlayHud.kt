@@ -1,9 +1,6 @@
 package com.rideguard.overlay
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -24,9 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rideguard.domain.model.OfferEconomics
@@ -38,9 +32,12 @@ import com.rideguard.domain.parse.NumberParsing
  * seconds to accept, he is holding a phone in a car, and he will look at this
  * for about two seconds.
  *
- * So: one headline number, two rates, and a warning badge only when there is
- * something to warn about. Everything else is behind a tap. Adding "just one
+ * So: one headline number, one rate beneath it, one quiet context line, and a
+ * warning badge only when there is something to warn about. Adding "just one
  * more useful field" is exactly how a HUD like this becomes unreadable.
+ *
+ * Nothing here is interactive, and nothing here should become interactive. See
+ * [OverlayHost] for why that is a safety property and not a preference.
  */
 private object HudColors {
     val Good = Color(0xFF16A34A)
@@ -50,7 +47,6 @@ private object HudColors {
 
     /** Near-opaque so it stays legible over a bright map in daylight. */
     val Surface = Color(0xF2141619)
-    val SurfaceSoft = Color(0xFF1E2228)
     val Primary = Color(0xFFF5F7FA)
     val Secondary = Color(0xFF9AA4B2)
 
@@ -63,13 +59,7 @@ private object HudColors {
 }
 
 @Composable
-fun OverlayHud(
-    state: OverlayUiState,
-    onDrag: (Float, Float) -> Unit,
-    onToggleExpanded: () -> Unit,
-    onDismiss: () -> Unit,
-    onOpenSettings: () -> Unit,
-) {
+fun OverlayHud(state: OverlayUiState) {
     val economics = state.economics
     if (!state.visible || economics == null) return
 
@@ -80,12 +70,6 @@ fun OverlayHud(
             .widthIn(min = 168.dp, max = 260.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(HudColors.Surface)
-            .pointerInput(Unit) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    onDrag(dragAmount.x, dragAmount.y)
-                }
-            }
             // Confidence below the threshold means we could not read the whole
             // card. Dimming is an honest signal — far better than rendering a
             // crisp number the driver would trust and act on.
@@ -93,7 +77,7 @@ fun OverlayHud(
     ) {
         // IntrinsicSize.Min lets the verdict strip match whatever height the
         // content ends up being, instead of guessing a fixed dp that breaks
-        // the moment a line wraps or the card expands.
+        // the moment a line wraps.
         Row(Modifier.height(IntrinsicSize.Min)) {
             // Verdict strip — readable from the corner of the eye.
             Box(
@@ -104,22 +88,12 @@ fun OverlayHud(
             )
 
             Column(
-                modifier = Modifier
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
-                    .clickable { onToggleExpanded() },
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(1.dp),
             ) {
                 EarningsPerKmRow(economics, accent)
                 NetPerKmRow(economics)
                 ContextRow(economics)
-
-                AnimatedVisibility(visible = state.expanded) {
-                    ExpandedDetail(
-                        economics = economics,
-                        onDismiss = onDismiss,
-                        onOpenSettings = onOpenSettings,
-                    )
-                }
             }
         }
     }
@@ -168,7 +142,7 @@ private fun EarningsPerKmRow(e: OfferEconomics, accent: Color) {
 }
 
 /**
- * The same number after fuel and wear — the one he actually keeps per km.
+ * The same number after fuel — the one he actually keeps per km.
  *
  * Deliberately styled quieter than the headline but still fully legible: it is
  * the honest figure, and a driver who glances only at the top line should
@@ -236,104 +210,5 @@ private fun WarningBadge(label: String) {
             .padding(horizontal = 5.dp, vertical = 2.dp),
     ) {
         Text(label, color = HudColors.Bad, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-    }
-}
-
-/** Behind a tap: where the money actually went. */
-@Composable
-private fun ExpandedDetail(
-    economics: OfferEconomics,
-    onDismiss: () -> Unit,
-    onOpenSettings: () -> Unit,
-) {
-    Column(
-        modifier = Modifier.padding(top = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Divider()
-        DetailRow("Fare", NumberParsing.formatRate(economics.gross), economics.currency)
-        if (economics.commission > 0.001) {
-            DetailRow("Commission", "−" + NumberParsing.formatRate(economics.commission), economics.currency)
-        }
-        DetailRow("Fuel", "−" + NumberParsing.formatRate(economics.energyCost), economics.currency)
-        DetailRow("Wear", "−" + NumberParsing.formatRate(economics.wearCost), economics.currency)
-        Divider()
-        DetailRow("Net", NumberParsing.formatRate(economics.net), economics.currency, strong = true)
-        // Spells out the gap between the two headline lines.
-        DetailRow(
-            label = "Cost per km",
-            value = "−" + NumberParsing.formatAuto(economics.costPerKm),
-            currency = economics.currency,
-        )
-
-        economics.offer.productName?.let {
-            Spacer(Modifier.height(2.dp))
-            Text(it, color = HudColors.Secondary, fontSize = 10.sp)
-        }
-
-        economics.reasons.take(2).forEach { reason ->
-            Text(
-                text = reason,
-                color = HudColors.Secondary,
-                fontSize = 10.sp,
-                lineHeight = 13.sp,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-
-        Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            SmallButton("Settings", Modifier.weight(1f), onOpenSettings)
-            SmallButton("Hide", Modifier.weight(1f), onDismiss)
-        }
-    }
-}
-
-@Composable
-private fun DetailRow(label: String, value: String, currency: String, strong: Boolean = false) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            label,
-            color = if (strong) HudColors.Primary else HudColors.Secondary,
-            fontSize = 11.sp,
-            fontWeight = if (strong) FontWeight.Bold else FontWeight.Normal,
-        )
-        Spacer(Modifier.weight(1f))
-        Text(
-            "$value $currency",
-            color = if (strong) HudColors.Primary else HudColors.Secondary,
-            fontSize = 11.sp,
-            fontWeight = if (strong) FontWeight.Bold else FontWeight.Medium,
-        )
-    }
-}
-
-@Composable
-private fun Divider() {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .background(HudColors.SurfaceSoft),
-    )
-}
-
-@Composable
-private fun SmallButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(7.dp))
-            .background(HudColors.SurfaceSoft)
-            .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
-    ) {
-        Text(
-            text = label,
-            color = HudColors.Primary,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }

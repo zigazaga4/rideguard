@@ -25,7 +25,7 @@ struct HistoryView: View {
             .navigationTitle("History")
             .toolbar {
                 if !state.history.isEmpty {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .navigationBarTrailing) {
                         Button("Clear", role: .destructive) { confirmingClear = true }
                     }
                 }
@@ -62,12 +62,24 @@ struct HistoryView: View {
         .listStyle(.insetGrouped)
     }
 
+    /// Hand-rolled rather than `ContentUnavailableView`, which is iOS 17 and
+    /// would drag the whole app's deployment target up with it for one empty
+    /// state. Drivers keep phones a long time.
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No offers yet", systemImage: "list.bullet.rectangle.portrait")
-        } description: {
+        VStack(spacing: 10) {
+            Image(systemName: "list.bullet.rectangle.portrait")
+                .font(.system(size: 42))
+                .foregroundStyle(.tertiary)
+            Text("No offers yet")
+                .font(.headline)
             Text("Check an offer on the Quick tab, or share a screenshot of an offer into RideGuard, and it lands here.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
     }
 }
 

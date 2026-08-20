@@ -41,8 +41,8 @@ struct OnboardingFlow: View {
             blurb: "A 30 lei offer with a 9 km pickup is worth less than a 20 lei offer at your door. RideGuard does that arithmetic in the seconds you have to decide."
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                bullet("square.and.arrow.up", "Share a screenshot", "Screenshot the offer, tap Share, pick RideGuard. It reads the card on-device and gives you the verdict.")
-                bullet("keyboard", "Or type five numbers", "Fare, pickup km and minutes, trip km and minutes.")
+                bullet("keyboard", "Type five numbers", "Fare, pickup km and minutes, trip km and minutes. Two seconds, one thumb, always works. This is the way you will actually use it.")
+                bullet("square.and.arrow.up", "Or share a screenshot", "Screenshot the offer, tap Share, pick RideGuard. Reading the card takes a few seconds on the phone — often longer than the offer lasts, so treat it as a way to check afterwards rather than to decide.")
                 bullet("iphone.slash", "No floating bubble on iPhone", "iOS does not let any app read another app's screen or draw over it. The Android version can; this one cannot, and no update will change that.")
             }
         }
@@ -52,7 +52,7 @@ struct OnboardingFlow: View {
         StepScaffold(
             symbol: "fuelpump",
             title: "What does your car cost to run?",
-            blurb: "Two numbers turn a fare into a real answer. Everything else has a sensible default."
+            blurb: "Two numbers turn a fare into a real answer: what your car drinks, and what that costs. Everything else has a sensible default."
         ) {
             VehicleSetupView(vehicle: $state.settings.vehicle)
                 .scrollContentBackground(.hidden)
@@ -90,12 +90,12 @@ struct OnboardingFlow: View {
         StepScaffold(
             symbol: "checkmark.seal",
             title: "Ready",
-            blurb: "Every kilometre on your car costs \(NumberParsing.formatRate(state.settings.vehicle.totalCostPerKm)) \(state.settings.vehicle.currency) — and RideGuard charges that on the pickup leg too, which is where the money quietly goes."
+            blurb: "Every kilometre on your car costs \(NumberParsing.formatRate(state.settings.vehicle.totalCostPerKm)) \(state.settings.vehicle.currency) in fuel — and RideGuard charges that on the pickup leg too, which is where the money quietly goes."
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                bullet("hand.tap", "Next offer you get", "Screenshot it, share it here, or type it in.")
+                bullet("hand.tap", "Next offer you get", "Type the fare and the two distances. Screenshot and share it if you would rather check afterwards.")
                 bullet("chart.line.uptrend.xyaxis", "Mark what you took", "After a week the totals tell you whether your targets are set anywhere near reality.")
-                bullet("lock", "Nothing leaves the phone", "Text recognition runs on-device and the app has no network code at all.")
+                bullet("lock", "Your offers stay on the phone", "Text recognition runs on-device. The only thing the app ever fetches is its own update file from GitHub.")
             }
         }
     }

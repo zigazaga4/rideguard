@@ -131,7 +131,6 @@ class ProjectionCaptureService : Service() {
             // No accessibility service on this flavour, so we fall back to
             // TYPE_APPLICATION_OVERLAY and the SYSTEM_ALERT_WINDOW grant.
             useAccessibilityOverlayType = false,
-            onDismiss = { overlay?.hide() },
         )
 
         val settings = SettingsRepository(this)

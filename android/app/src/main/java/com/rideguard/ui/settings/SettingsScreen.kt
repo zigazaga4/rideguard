@@ -7,10 +7,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -23,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -34,7 +39,6 @@ import com.rideguard.Permissions
 import com.rideguard.data.SettingsRepository
 import com.rideguard.domain.model.DriverThresholds
 import com.rideguard.domain.model.FuelType
-import com.rideguard.domain.model.Platform
 import com.rideguard.domain.model.VehicleProfile
 import com.rideguard.domain.parse.NumberParsing
 import com.rideguard.ui.ChipRow
@@ -54,11 +58,18 @@ import kotlinx.coroutines.launch
  * always that the OEM battery manager killed the service or the accessibility
  * toggle got reset by a system update. Putting live status first makes that
  * self-diagnosing.
+ *
+ * There is no commission or gross/net control here any more, and that is a
+ * correctness decision rather than a tidying one. Both Romanian apps print the
+ * driver's net take on the card — Bolt says so outright, Uber labels it
+ * "Câștig net" — so the defaults are right, and every knob that can be turned
+ * wrong is a way for a driver to silently break every number the HUD shows him.
  */
 @Composable
 fun SettingsScreen(
     settings: SettingsRepository,
     onReplayOnboarding: () -> Unit,
+    onOpenUpdates: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -66,6 +77,8 @@ fun SettingsScreen(
     val vehicle by settings.vehicle.collectAsState(initial = VehicleProfile.DEFAULT_RO)
     val thresholds by settings.thresholds.collectAsState(initial = DriverThresholds())
     val recordMode by settings.recordModeEnabled.collectAsState(initial = false)
+
+    var showDeveloper by remember { mutableStateOf(false) }
 
     // Permission state is read fresh on every recomposition because the user
     // leaves the app to change it and comes back — there is no callback.
@@ -89,7 +102,7 @@ fun SettingsScreen(
         Text("RideGuard", color = RgColors.Primary, fontSize = 26.sp, fontWeight = FontWeight.Black)
 
         // ------------------------------------------------------------ setup
-        SectionHeader("Setup", "All three must be green for the HUD to appear.")
+        SectionHeader("Setup", "Both of these must say DONE before the HUD appears.")
 
         if (BuildConfig.USE_ACCESSIBILITY) {
             StepCard(
@@ -136,30 +149,39 @@ fun SettingsScreen(
         VehicleEditor(vehicle) { updated -> scope.launch { settings.saveVehicle(updated) } }
 
         // -------------------------------------------------------- thresholds
-        SectionHeader("Targets", "What makes an offer green, amber or red.")
-        ThresholdEditor(thresholds, vehicle.currency) { updated ->
+        SectionHeader(
+            "Targets",
+            "What makes an offer green, amber or red over the offer card. The line under each " +
+                "one says whether the number you typed can actually do that job.",
+        )
+        ThresholdEditor(thresholds, vehicle) { updated ->
             scope.launch { settings.saveThresholds(updated) }
         }
 
-        // --------------------------------------------------------- platforms
-        SectionHeader(
-            "Platforms",
-            "Verify these against a real weekly payout statement — whether the card shows gross or net " +
-                "varies by country, and getting it wrong skews every number by the commission rate.",
-        )
-        Platform.entries.filter { it != Platform.UNKNOWN }.forEach { platform ->
-            PlatformEditor(platform, settings)
-        }
+        // ----------------------------------------------------------- updates
+        SectionHeader("Updates", "This build does not update itself.")
+        com.rideguard.ui.SecondaryButton("Check for updates", onClick = onOpenUpdates)
 
         // ------------------------------------------------------------- tools
-        SectionHeader("Developer", "For tuning the parser against real offers.")
-        SettingSwitch(
-            title = "Record offers to disk",
-            subtitle = "Saves every offer card as a JSON fixture. Run one shift with this on, " +
-                "then the parser can be tuned on a laptop against real data instead of guesswork.",
-            checked = recordMode,
-            onCheckedChange = { scope.launch { settings.setRecordMode(it) } },
+        //
+        // Folded away because record mode writes a JSON fixture for every card
+        // it sees. That is exactly what we want for one deliberate tuning shift
+        // and exactly what we do not want left on by a driver who tapped a
+        // switch to find out what it did.
+        Box(Modifier.height(8.dp))
+        com.rideguard.ui.SecondaryButton(
+            label = if (showDeveloper) "Hide developer tools" else "Developer tools",
+            onClick = { showDeveloper = !showDeveloper },
         )
+        if (showDeveloper) {
+            SettingSwitch(
+                title = "Record offers to disk",
+                subtitle = "Saves every offer card as a JSON fixture. Run one shift with this on, " +
+                    "then the parser can be tuned on a laptop against real data instead of guesswork.",
+                checked = recordMode,
+                onCheckedChange = { scope.launch { settings.setRecordMode(it) } },
+            )
+        }
 
         Box(Modifier.height(8.dp))
         com.rideguard.ui.SecondaryButton("Run setup again", onClick = onReplayOnboarding)
@@ -171,7 +193,7 @@ fun SettingsScreen(
 private fun VehicleEditor(vehicle: VehicleProfile, onChange: (VehicleProfile) -> Unit) {
     var consumption by remember(vehicle) { mutableStateOf(fmt(vehicle.consumptionPer100km)) }
     var price by remember(vehicle) { mutableStateOf(fmt(vehicle.energyPrice)) }
-    var wear by remember(vehicle) { mutableStateOf(fmt(vehicle.wearCostPerKm)) }
+    var currency by remember(vehicle) { mutableStateOf(vehicle.currency) }
     var label by remember(vehicle) { mutableStateOf(vehicle.label) }
 
     fun push(next: VehicleProfile) = onChange(next)
@@ -209,15 +231,12 @@ private fun VehicleEditor(vehicle: VehicleProfile, onChange: (VehicleProfile) ->
             suffix = "${vehicle.currency} / ${vehicle.fuelType.unitLabel}",
         )
 
-        NumberField(
-            label = "Wear and tear",
-            value = wear,
-            onValueChange = {
-                wear = it
-                NumberParsing.parseDecimal(it)?.let { v -> push(vehicle.copy(wearCostPerKm = v)) }
-            },
-            suffix = "${vehicle.currency} / km",
-        )
+        // Blank is never pushed: an empty currency would propagate into every
+        // formatted figure in the app the moment the field is cleared to retype.
+        TextField("Currency", currency, {
+            currency = it
+            if (it.isNotBlank()) push(vehicle.copy(currency = it))
+        })
 
         Box(
             Modifier
@@ -229,8 +248,9 @@ private fun VehicleEditor(vehicle: VehicleProfile, onChange: (VehicleProfile) ->
             Text(
                 text = "Every kilometre costs you " +
                     NumberParsing.formatMoney(vehicle.totalCostPerKm, vehicle.currency) +
-                    "  (fuel " + NumberParsing.formatRate(vehicle.energyCostPerKm) +
-                    " + wear " + NumberParsing.formatRate(vehicle.wearCostPerKm) + ")",
+                    ". A 10 km ride is " +
+                    NumberParsing.formatMoney(vehicle.totalCostPerKm * 10, vehicle.currency) +
+                    " gone before you earn anything.",
                 color = RgColors.Secondary,
                 fontSize = 12.sp,
                 lineHeight = 17.sp,
@@ -242,75 +262,123 @@ private fun VehicleEditor(vehicle: VehicleProfile, onChange: (VehicleProfile) ->
 @Composable
 private fun ThresholdEditor(
     thresholds: DriverThresholds,
-    currency: String,
+    vehicle: VehicleProfile,
     onChange: (DriverThresholds) -> Unit,
 ) {
     var perKm by remember(thresholds) { mutableStateOf(fmt(thresholds.minNetPerKm)) }
     var perHour by remember(thresholds) { mutableStateOf(fmt(thresholds.minNetPerHour)) }
     var deadhead by remember(thresholds) { mutableStateOf(fmt(thresholds.maxDeadheadRatio)) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        NumberField("Minimum per km", perKm, {
-            perKm = it
-            NumberParsing.parseDecimal(it)?.let { v -> onChange(thresholds.copy(minNetPerKm = v)) }
-        }, suffix = "$currency / km")
+    val currency = vehicle.currency
 
-        NumberField("Minimum per hour", perHour, {
-            perHour = it
-            NumberParsing.parseDecimal(it)?.let { v -> onChange(thresholds.copy(minNetPerHour = v)) }
-        }, suffix = "$currency / h")
+    // Grouped tightly so each status line reads as belonging to the field above
+    // it; the gap BETWEEN groups is what separates one target from the next.
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        TargetGroup {
+            NumberField("Minimum per km", perKm, {
+                perKm = it
+                NumberParsing.parseDecimal(it)?.let { v -> onChange(thresholds.copy(minNetPerKm = v)) }
+            }, suffix = "$currency / km")
+            // Restated as what the CARD has to show, because that is the only
+            // form the driver can check against a live offer: his target is
+            // after fuel, the card is before it, and the gap is his own cost.
+            TargetStatus(
+                ok = thresholds.minNetPerKm > 0.0,
+                text = if (thresholds.minNetPerKm > 0.0) {
+                    "The card has to show at least " +
+                        NumberParsing.formatRate(thresholds.minNetPerKm + vehicle.totalCostPerKm) +
+                        " $currency/km"
+                } else {
+                    "At zero this can never be missed — nothing will turn red"
+                },
+            )
+        }
 
-        NumberField("Maximum pickup ratio", deadhead, {
-            deadhead = it
-            NumberParsing.parseDecimal(it)?.let { v -> onChange(thresholds.copy(maxDeadheadRatio = v)) }
-        }, suffix = "×")
+        TargetGroup {
+            NumberField("Minimum per hour", perHour, {
+                perHour = it
+                NumberParsing.parseDecimal(it)?.let { v -> onChange(thresholds.copy(minNetPerHour = v)) }
+            }, suffix = "$currency / h")
+            HourlyTargetStatus(thresholds)
+        }
+
+        TargetGroup {
+            NumberField("Maximum pickup ratio", deadhead, {
+                deadhead = it
+                NumberParsing.parseDecimal(it)?.let { v -> onChange(thresholds.copy(maxDeadheadRatio = v)) }
+            }, suffix = "×")
+            TargetStatus(
+                ok = thresholds.maxDeadheadRatio > 0.0 && thresholds.maxDeadheadRatio <= 1.0,
+                text = when {
+                    thresholds.maxDeadheadRatio <= 0.0 ->
+                        "At zero every offer with a pickup leg is flagged"
+                    thresholds.maxDeadheadRatio > 1.0 ->
+                        "Above 1.0 you are driving further to collect than you are paid to carry"
+                    else ->
+                        "Flags a pickup longer than " +
+                            NumberParsing.formatRate(thresholds.maxDeadheadRatio, 1) + "× the paid leg"
+                },
+            )
+        }
     }
 }
 
 @Composable
-private fun PlatformEditor(platform: Platform, settings: SettingsRepository) {
-    val scope = rememberCoroutineScope()
-    val pipeline by settings.settings.collectAsState(initial = null)
+private fun TargetGroup(content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) { content() }
+}
 
-    val commission = pipeline?.commissionFor(platform) ?: platform.defaultCommissionRate
-    val isNet = pipeline?.fareIsNetFor(platform) ?: platform.fareShownIsNetByDefault
+/**
+ * The two rate targets are not independent: dividing one by the other gives the
+ * speed at which they agree, and either side of that speed only one of them is
+ * ever the binding constraint. A driver who types 200/h next to 1.5/km has
+ * written a target that cannot fire below 133 km/h, which in city traffic means
+ * never — and a target that never fires is worse than no target, because he
+ * believes it is protecting him.
+ */
+@Composable
+private fun HourlyTargetStatus(thresholds: DriverThresholds) {
+    val impliedKmh = thresholds.minNetPerKm
+        .takeIf { it > 0.0 }
+        ?.let { thresholds.minNetPerHour / it }
+    val speed = impliedKmh?.let { NumberParsing.formatRate(it, 0) }
 
-    var commissionText by remember(commission) { mutableStateOf(fmt(commission * 100)) }
+    TargetStatus(
+        ok = thresholds.minNetPerHour > 0.0 && (impliedKmh == null || impliedKmh in 10.0..70.0),
+        text = when {
+            thresholds.minNetPerHour <= 0.0 -> "At zero this can never be missed — nothing will turn red"
+            impliedKmh == null -> "Judging every offer on its own, since the per-km target is off"
+            impliedKmh > 70.0 -> "Only bites above $speed km/h — in traffic, never"
+            impliedKmh < 10.0 -> "Only bites below $speed km/h — your per-km target decides everything"
+            else -> "Catches the slow jobs, below $speed km/h"
+        },
+    )
+}
 
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(RgColors.Surface)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+/**
+ * The green/red the driver asked for, and it is careful about what it claims.
+ *
+ * Settings has no live offer in front of it, so colouring these against an
+ * invented reference ride would be dressing a guess up as a measurement. What
+ * it can say honestly is whether the number typed in is a bar at all — and that
+ * catches the failure that actually happens, which is a target set somewhere it
+ * can never be hit or never be missed.
+ */
+@Composable
+private fun TargetStatus(ok: Boolean, text: String) {
+    val tint = if (ok) RgColors.Good else RgColors.Bad
+    Row(
+        Modifier.padding(start = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(platform.displayName, color = RgColors.Primary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-
-        NumberField(
-            label = "Commission",
-            value = commissionText,
-            onValueChange = {
-                commissionText = it
-                NumberParsing.parseDecimal(it)?.let { v ->
-                    scope.launch { settings.savePlatformConfig(platform, v / 100.0, isNet) }
-                }
-            },
-            suffix = "%",
+        Box(
+            Modifier
+                .size(7.dp)
+                .clip(RoundedCornerShape(50))
+                .background(tint),
         )
-
-        SettingSwitch(
-            title = "Fare shown is already net",
-            subtitle = if (isNet) {
-                "The number on the card is what you keep before running costs."
-            } else {
-                "The number on the card is gross; commission is taken off it."
-            },
-            checked = isNet,
-            onCheckedChange = { next ->
-                scope.launch { settings.savePlatformConfig(platform, commission, next) }
-            },
-        )
+        Spacer(Modifier.width(6.dp))
+        Text(text, color = tint, fontSize = 11.sp, lineHeight = 15.sp)
     }
 }
 

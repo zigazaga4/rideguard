@@ -56,6 +56,14 @@ public enum Persistence {
     }()
 }
 
+private extension KeyedDecodingContainer {
+    /// Absent, null, or the wrong type all read as nil, so one bad field costs
+    /// one field rather than the whole settings blob.
+    func lenient<T: Decodable>(_ type: T.Type, _ key: Key) -> T? {
+        (try? decodeIfPresent(type, forKey: key)) ?? nil
+    }
+}
+
 // MARK: - Settings
 
 /// Everything the driver configured. One value, one blob, one write.
@@ -68,41 +76,59 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// Keyed by `Platform.rawValue` rather than by `Platform` so the JSON stays
     /// a plain object; Swift encodes non-String-keyed dictionaries as a flat
     /// alternating array, which is unreadable and awkward to migrate.
-    public var commissionRates: [String: Double]
+    ///
+    /// There is deliberately no commission setting beside this one. Both
+    /// Romanian driver apps print the driver's NET take on the card, so there
+    /// is nothing to subtract; offering a commission slider invites a driver to
+    /// set one and be wrong by that percentage on every single offer.
     public var fareIsNetFlags: [String: Bool]
     /// Which app the driver mostly works. Used as the tie-break when a shared
     /// screenshot gives no clue which platform it came from.
     public var defaultPlatform: Platform
     public var hasCompletedOnboarding: Bool
+    /// Whether a verdict is mirrored onto the Lock Screen after it is
+    /// computed. Off by default: it is the one feature here that can put
+    /// something on the driver's screen without being asked.
+    public var liveActivityEnabled: Bool
 
     public init(
         vehicle: VehicleProfile = .defaultRO,
         thresholds: DriverThresholds = DriverThresholds(),
-        commissionRates: [String: Double] = [:],
         fareIsNetFlags: [String: Bool] = [:],
         defaultPlatform: Platform = .bolt,
-        hasCompletedOnboarding: Bool = false
+        hasCompletedOnboarding: Bool = false,
+        liveActivityEnabled: Bool = false
     ) {
         self.vehicle = vehicle
         self.thresholds = thresholds
-        self.commissionRates = commissionRates
         self.fareIsNetFlags = fareIsNetFlags
         self.defaultPlatform = defaultPlatform
         self.hasCompletedOnboarding = hasCompletedOnboarding
+        self.liveActivityEnabled = liveActivityEnabled
     }
 
-    /// The platform default is only a starting point — it varies by country,
-    /// tier and promotion, so a driver override always wins.
-    public func commissionRate(for platform: Platform) -> Double {
-        commissionRates[platform.rawValue] ?? platform.defaultCommissionRate
+    /// Hand-written so that adding a field in a later build does not throw on
+    /// a blob written by an earlier one. Synthesised decoding treats a missing
+    /// key as an error, `SettingsStore` treats an error as "start fresh", and
+    /// the driver would silently lose their car and their targets on update —
+    /// on a build that updates itself from GitHub, that is not hypothetical.
+    public enum CodingKeys: String, CodingKey {
+        case vehicle, thresholds, fareIsNetFlags, defaultPlatform, hasCompletedOnboarding, liveActivityEnabled
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = AppSettings()
+        vehicle = c.lenient(VehicleProfile.self, .vehicle) ?? fallback.vehicle
+        thresholds = c.lenient(DriverThresholds.self, .thresholds) ?? fallback.thresholds
+        fareIsNetFlags = c.lenient([String: Bool].self, .fareIsNetFlags) ?? [:]
+        defaultPlatform = c.lenient(Platform.self, .defaultPlatform) ?? fallback.defaultPlatform
+        hasCompletedOnboarding = c.lenient(Bool.self, .hasCompletedOnboarding) ?? false
+        liveActivityEnabled = c.lenient(Bool.self, .liveActivityEnabled) ?? false
     }
 
     public func fareIsNet(for platform: Platform) -> Bool {
         fareIsNetFlags[platform.rawValue] ?? platform.fareShownIsNetByDefault
-    }
-
-    public mutating func setCommissionRate(_ rate: Double, for platform: Platform) {
-        commissionRates[platform.rawValue] = min(max(rate, 0), 0.95)
     }
 
     public mutating func setFareIsNet(_ value: Bool, for platform: Platform) {
@@ -133,6 +159,74 @@ public struct SettingsStore {
 
     public func save(_ settings: AppSettings) {
         guard let data = try? Persistence.encoder.encode(settings) else { return }
+        defaults.set(data, forKey: key)
+    }
+}
+
+// MARK: - Quick entry
+
+/// The last legs the driver typed, so the next offer is fewer taps.
+///
+/// The fare is deliberately NOT remembered. Distances and times repeat — the
+/// same driver works the same patch and types "3" and "10" all evening — but
+/// the fare is different every single time, and a prefilled fare is how a
+/// driver ends up looking at a verdict for the previous offer.
+///
+/// Stored as the raw strings rather than as `Double`s so "2,4" comes back as
+/// "2,4" and not as "2.4" on a phone set to English.
+public struct QuickEntryDraft: Codable, Equatable, Sendable {
+    public var platform: Platform
+    public var pickupKm: String
+    public var pickupMin: String
+    public var tripKm: String
+    public var tripMin: String
+
+    public init(
+        platform: Platform = .bolt,
+        pickupKm: String = "",
+        pickupMin: String = "",
+        tripKm: String = "",
+        tripMin: String = ""
+    ) {
+        self.platform = platform
+        self.pickupKm = pickupKm
+        self.pickupMin = pickupMin
+        self.tripKm = tripKm
+        self.tripMin = tripMin
+    }
+
+    public var hasLegs: Bool {
+        ![pickupKm, pickupMin, tripKm, tripMin].allSatisfy(\.isEmpty)
+    }
+
+    /// One line for the "reuse" chip: short enough for a thumb-sized button.
+    public var summary: String {
+        let pickup = [pickupKm.isEmpty ? "—" : pickupKm + " km", pickupMin.isEmpty ? nil : pickupMin + " min"]
+            .compactMap { $0 }.joined(separator: " · ")
+        let trip = [tripKm.isEmpty ? "—" : tripKm + " km", tripMin.isEmpty ? nil : tripMin + " min"]
+            .compactMap { $0 }.joined(separator: " · ")
+        return "\(pickup) → \(trip)"
+    }
+}
+
+public struct QuickEntryDraftStore {
+    private let key = "rideguard.quickentry.v1"
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = Persistence.defaults) {
+        self.defaults = defaults
+    }
+
+    public func load() -> QuickEntryDraft? {
+        guard
+            let data = defaults.data(forKey: key),
+            let draft = try? Persistence.decoder.decode(QuickEntryDraft.self, from: data)
+        else { return nil }
+        return draft
+    }
+
+    public func save(_ draft: QuickEntryDraft) {
+        guard let data = try? Persistence.encoder.encode(draft) else { return }
         defaults.set(data, forKey: key)
     }
 }

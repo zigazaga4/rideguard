@@ -162,8 +162,10 @@ export default function ControlPanel() {
 
       <Section title="Offer">
         <View style={styles.wrap}>
+          {/* Both apps are Romanian and both pay in RON; only the word on the
+              card differs ("lei" on Bolt, "RON" on Uber). */}
           <NumberField
-            label={platform === 'bolt' ? 'Fare (lei)' : 'Fare (€)'}
+            label={platform === 'bolt' ? 'Fare (lei)' : 'Fare (RON)'}
             value={draft.fare}
             onChange={(v) => set('fare', v)}
           />
@@ -187,7 +189,7 @@ export default function ControlPanel() {
             onChange={(v) => set('passengerRating', v)}
           />
           <NumberField
-            label="Surge ×"
+            label="Surge x"
             value={draft.surge}
             onChange={(v) => set('surge', v)}
             placeholder="off"

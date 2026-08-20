@@ -27,7 +27,7 @@ struct RootView: View {
             }
         }
         .animation(.default, value: state.settings.hasCompletedOnboarding)
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { phase in
             // The share extension is a separate process writing the same
             // history file while this one is suspended. Without this reload,
             // an offer the driver analysed from the share sheet would never

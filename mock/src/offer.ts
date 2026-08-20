@@ -12,7 +12,7 @@ export const PLATFORMS: Platform[] = ['bolt', 'uber'];
 
 /** `null` means "not rendered on the card at all" — not "zero". */
 export interface Offer {
-  /** Headline fare, in the platform's currency (lei for Bolt, € for Uber). */
+  /** Headline fare. Romania is RON on both apps; only the word differs. */
   fare: number;
   /** Deadhead leg — the unpaid drive to the passenger. */
   pickupKm: number | null;
@@ -23,28 +23,51 @@ export interface Offer {
   passengerRating: number | null;
   /** Surge / dynamic-fare multiplier. Only rendered when > 1. */
   surge: number | null;
-  /** Product tier, e.g. "Comfort" / "UberX". Must be one of the names the
+  /** Product tier, e.g. "Bolt" / "UberX". Must be one of the names the
    *  Kotlin `BoltOfferParser` / `UberOfferParser` product lists know about. */
   product: string;
+  /** Bolt prints the passenger's first name next to the rating; Uber does not. */
+  passengerName: string | null;
   pickupAddress: string;
   destinationAddress: string;
 }
 
-/** Product tiers each platform's parser recognises (see PlatformParsers.kt). */
+/**
+ * Product tiers each platform's parser recognises (see PlatformParsers.kt).
+ *
+ * `Bolt` is first because that is Bolt's base tier and what the real card
+ * shows — the chip literally reads `🚗 Bolt`, the same way Uber's reads
+ * `👤 UberX`.
+ */
 export const PRODUCTS: Record<Platform, string[]> = {
-  bolt: ['Comfort', 'XL', 'Green', 'Pet', 'Economy'],
+  bolt: ['Bolt', 'Comfort', 'XL', 'Green', 'Pet', 'Economy'],
   uber: ['UberX', 'Comfort', 'Green', 'Black', 'XL'],
 };
 
 /**
- * Addresses carry no tokens by design — no digit ever sits next to `km`, `m`,
- * `mi` or a currency word — so they add realism without adding noise the
- * parser has to survive. The Bolt pickup is lifted straight from the
- * `boltCard()` fixture in OfferParserTest.kt.
+ * Addresses lifted verbatim off the real screenshots, postcodes included.
+ *
+ * They are kept EXACTLY as captured because they are the harness's main
+ * guardrail: `Bulevardul Mamaia Nord 2, Năvodari 905750` carries a street
+ * number and a six-digit postcode, and if either ever leaked into the fare or
+ * a leg the driver would be shown a confident, plausible, wrong number.
+ * `MockHarnessContractTest` asserts these blocks yield no tokens at all.
  */
 export const DEFAULT_ADDRESSES: Record<Platform, { pickup: string; destination: string }> = {
-  bolt: { pickup: 'Strada Victoriei 12', destination: 'Bulevardul Unirii 45' },
-  uber: { pickup: 'Bulevardul Magheru 8', destination: 'Strada Lipscani 22' },
+  bolt: {
+    pickup: 'Bulevardul Mamaia Nord 2, Năvodari 905750',
+    destination: 'Azimuth Beach & Lounge, Strada Promenada, Mamaia-Sat 905700',
+  },
+  uber: {
+    pickup: 'Str. Lirei 35, Constanța',
+    destination: 'Strada Emil Costinescu 1, Costinești',
+  },
+};
+
+/** Bolt shows a first name beside the rating. Uber's chip is the star alone. */
+export const PASSENGER_NAMES: Record<Platform, string | null> = {
+  bolt: 'Lichi',
+  uber: null,
 };
 
 /**
@@ -83,13 +106,28 @@ const draft = (
   pickupMin,
   tripKm,
   tripMin,
-  passengerRating: '4.85',
+  // One decimal place, because Bolt renders ratings with one: 4.85 would come
+  // out as "4.8" on the card and read as a formatting bug to anyone comparing
+  // the preset with the screen.
+  passengerRating: '4.9',
   surge: '',
   product: '',
   ...extra,
 });
 
 export const PRESETS: Preset[] = [
+  {
+    id: 'real-bolt',
+    label: 'Real Bolt',
+    note: 'The actual Bolt screenshot: 11,62 lei net, 2.8 km pickup for a 3 km ride.',
+    draft: draft('11.62', '2.8', '6', '3', '6', { passengerRating: '5.0', surge: '1.1' }),
+  },
+  {
+    id: 'real-uber',
+    label: 'Real Uber',
+    note: 'The actual Uber screenshot: 78,16 RON net, 5.4 km pickup, 29 km ride.',
+    draft: draft('78.16', '5.4', '12', '29.0', '57', { passengerRating: '5.0' }),
+  },
   {
     id: 'good',
     label: 'Good',
@@ -99,7 +137,7 @@ export const PRESETS: Preset[] = [
   {
     id: 'trap',
     label: 'Classic trap',
-    note: 'Long deadhead, tiny paid leg. Should come out BAD / loss-making.',
+    note: 'Long deadhead, tiny paid leg. Misses every target — BAD.',
     draft: draft('6', '5.0', '12', '2.0', '6'),
   },
   {
@@ -117,7 +155,7 @@ export const PRESETS: Preset[] = [
   {
     id: 'long',
     label: 'Long trip',
-    note: 'Big numbers; checks nothing overflows or gets clamped away.',
+    note: 'Big numbers, and the only preset that trips Uber’s >45 min chip.',
     draft: draft('120', '4.0', '9', '45.0', '55'),
   },
   {
@@ -149,6 +187,7 @@ export function draftToOffer(d: Draft, platform: Platform): Offer {
     passengerRating: parseNumber(d.passengerRating),
     surge: parseNumber(d.surge),
     product: d.product.trim() || PRODUCTS[platform][0],
+    passengerName: PASSENGER_NAMES[platform],
     pickupAddress: addresses.pickup,
     destinationAddress: addresses.destination,
   };

@@ -1,47 +1,18 @@
 import Foundation
+import RideGuardCore
 
-//  The one file in RideGuardCore allowed to import an Apple framework beyond
-//  Foundation. Everything else here is pure so it can be unit-tested without a
-//  simulator, exactly like the Kotlin `:domain` module.
+//  iOS's honest answer to Android's screen reading.
 //
-//  This is iOS's honest answer to Android's screen reading. iOS cannot read
-//  another app's window and cannot draw over one — see
+//  iOS cannot read another app's window and cannot draw over one — see
 //  `docs/ios-platform-limits.md` for the API-by-API reasoning. What it CAN do
 //  is accept a screenshot the driver shares into us and run on-device OCR over
 //  it. The output is a `[TextBlock]`, which is precisely what the Android
 //  AccessibilityService produces, so from `TokenScanner` downwards the two
 //  apps run the same code on the same shape of data.
-
-/// Guesses which driver app a shared screenshot came from.
-///
-/// On Android the package name is authoritative. Here there is no package
-/// name — an image carries no provenance — so we sniff the text. Kept pure and
-/// outside the Vision guard so it is testable on any platform.
-public enum ScreenshotPlatformGuess {
-
-    private static let boltMarkers = [
-        "bolt", "comandă nouă", "comanda noua", "cursă nouă", "cursa noua", "acceptă", "mtakso",
-    ]
-    private static let uberMarkers = [
-        "uber", "uberx", "uber comfort", "trip request", "accept", "you're online",
-    ]
-
-    /// Returns the better-supported guess, or `fallback` when the text gives
-    /// no signal either way.
-    ///
-    /// `fallback` is the platform the driver picked in settings, because a
-    /// driver who works one app overwhelmingly gets offers from that app, and
-    /// guessing wrong only changes the commission default — which the verdict
-    /// card shows and the driver can correct in one tap.
-    public static func guess(from text: String, fallback: Platform) -> Platform {
-        let haystack = text.lowercased()
-        let bolt = boltMarkers.reduce(0) { $0 + (haystack.contains($1) ? 1 : 0) }
-        let uber = uberMarkers.reduce(0) { $0 + (haystack.contains($1) ? 1 : 0) }
-        if bolt > uber { return .bolt }
-        if uber > bolt { return .uber }
-        return fallback
-    }
-}
+//
+//  Deliberately NOT part of RideGuardCore: Core is Foundation-only so
+//  `swift test` runs the whole domain suite on any machine, Linux included.
+//  Vision would drag the entire domain onto an Apple platform.
 
 #if canImport(Vision)
 

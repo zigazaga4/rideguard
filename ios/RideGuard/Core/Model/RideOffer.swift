@@ -76,11 +76,19 @@ public struct RideOffer: Equatable, Codable, Sendable {
         return p + t
     }
 
+    /// Distance we can actually charge cost against: both legs when we have
+    /// them, otherwise the paid leg alone.
+    ///
+    /// Falling back to `tripKm` does understate cost, because it silently
+    /// ignores the deadhead — which is why any offer that lands here takes a
+    /// heavy `parseConfidence` penalty and surfaces as UNKNOWN rather than as
+    /// a confident verdict.
+    public var chargeableKm: Double? { totalKm ?? tripKm }
+
     /// Enough to do the maths? Distance and fare are mandatory; time is
     /// strongly preferred but we can still show per-km without it.
     public var isComputable: Bool {
-        guard fare > 0.0, let km = totalKm else { return false }
-        return km > 0.0
+        fare > 0.0 && (chargeableKm ?? 0.0) > 0.0
     }
 }
 
@@ -111,15 +119,25 @@ public struct OfferEconomics: Equatable, Codable, Sendable {
     public let gross: Double
     /// What the platform keeps.
     public let commission: Double
+    /// What actually reaches the driver's hands before running costs —
+    /// `gross` minus `commission`. This is the headline the card divides by
+    /// distance, because it is the number the driver recognises as "what this
+    /// ride pays me".
+    public let afterCommission: Double
     /// Fuel or electricity for the whole distance, deadhead included.
     public let energyCost: Double
-    /// Tyres, servicing, depreciation for the whole distance.
-    public let wearCost: Double
     /// What actually lands in the driver's pocket.
     public let net: Double
 
-    public let grossPerKm: Double
-    public let grossPerHour: Double?
+    /// THE HEADLINE NUMBER. Earnings per kilometre driven, commission already
+    /// removed but running costs not yet.
+    ///
+    /// Charged against the FULL distance — pickup plus trip — because that is
+    /// how far the car actually moves. This is what the driver compares
+    /// between offers, and `netPerKm` sitting directly beneath it shows what
+    /// the road takes back.
+    public let earningsPerKm: Double
+
     public let netPerKm: Double
     public let netPerHour: Double?
 
@@ -137,11 +155,10 @@ public struct OfferEconomics: Equatable, Codable, Sendable {
         totalMin: Double?,
         gross: Double,
         commission: Double,
+        afterCommission: Double,
         energyCost: Double,
-        wearCost: Double,
         net: Double,
-        grossPerKm: Double,
-        grossPerHour: Double?,
+        earningsPerKm: Double,
         netPerKm: Double,
         netPerHour: Double?,
         deadheadRatio: Double?,
@@ -154,11 +171,10 @@ public struct OfferEconomics: Equatable, Codable, Sendable {
         self.totalMin = totalMin
         self.gross = gross
         self.commission = commission
+        self.afterCommission = afterCommission
         self.energyCost = energyCost
-        self.wearCost = wearCost
         self.net = net
-        self.grossPerKm = grossPerKm
-        self.grossPerHour = grossPerHour
+        self.earningsPerKm = earningsPerKm
         self.netPerKm = netPerKm
         self.netPerHour = netPerHour
         self.deadheadRatio = deadheadRatio
@@ -170,6 +186,10 @@ public struct OfferEconomics: Equatable, Codable, Sendable {
     /// True when the ride costs more to serve than it pays.
     public var isLossMaking: Bool { net < 0.0 }
 
-    /// Total running cost of serving this ride.
-    public var totalCost: Double { energyCost + wearCost }
+    /// Total running cost of serving this ride. Fuel, on every kilometre.
+    public var totalCost: Double { energyCost }
+
+    /// What the road takes out of every kilometre. The gap between the two
+    /// headline lines on the card.
+    public var costPerKm: Double { totalKm > 0 ? totalCost / totalKm : 0.0 }
 }

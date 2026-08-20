@@ -28,10 +28,10 @@ import com.rideguard.domain.model.OfferEconomics
  *
  * ## The two things that make this work
  *
- * **1. `FLAG_NOT_FOCUSABLE` is mandatory.** Without it this window steals
- * keyboard focus and breaks whatever the driver is actually using. We still
- * receive touches — focus and touchability are separate concerns — so the
- * buttons on the HUD work fine.
+ * **1. The window takes no input at all.** `FLAG_NOT_FOCUSABLE` keeps it from
+ * stealing keyboard focus from the driver app; `FLAG_NOT_TOUCHABLE` keeps it
+ * from consuming a single touch. See [buildParams] — this is a safety
+ * property, not a styling choice.
  *
  * **2. The window type is chosen, not assumed.** When we are running inside
  * an AccessibilityService we use `TYPE_ACCESSIBILITY_OVERLAY`, which:
@@ -52,9 +52,6 @@ class OverlayHost(
     private val context: Context,
     /** True when constructed from an AccessibilityService. See class doc. */
     private val useAccessibilityOverlayType: Boolean,
-    private val onPositionChanged: (OverlayPosition) -> Unit = {},
-    private val onDismiss: () -> Unit = {},
-    private val onOpenSettings: () -> Unit = {},
 ) {
 
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -66,7 +63,7 @@ class OverlayHost(
     private var params: WindowManager.LayoutParams? = null
     private var attached = false
 
-    /** Current position, kept in sync as the driver drags. */
+    /** Where the HUD currently sits, already clamped into the safe band. */
     var position: OverlayPosition = OverlayPosition.UNSET
         private set
 
@@ -97,12 +94,30 @@ class OverlayHost(
         detach()
     }
 
+    /**
+     * Clamped on the way in, not trusted as given.
+     *
+     * A position saved on another handset, another orientation or before a
+     * display-size change can name a spot that no longer exists — or, worse,
+     * one that now sits over the Accept button. [OverlayBounds] is the only
+     * thing standing between a stale preference and a HUD parked on top of the
+     * control the driver needs.
+     */
     fun setPosition(next: OverlayPosition) = onMain {
         if (next.isSet) {
-            position = next
+            val (screenW, screenH) = screenSize()
+            val view = composeView
+            position = OverlayBounds.clamp(
+                x = next.x,
+                y = next.y,
+                viewW = view?.width ?: 0,
+                viewH = view?.height ?: 0,
+                screenW = screenW,
+                screenH = screenH,
+            )
             params?.let { p ->
-                p.x = next.x
-                p.y = next.y
+                p.x = position.x
+                p.y = position.y
                 if (attached) runCatching { windowManager.updateViewLayout(composeView, p) }
             }
         }
@@ -146,17 +161,7 @@ class OverlayHost(
                 setViewTreeLifecycleOwner(owner)
                 setViewTreeSavedStateRegistryOwner(owner)
                 setViewTreeViewModelStoreOwner(owner)
-                setContent {
-                    OverlayHud(
-                        state = state.value,
-                        onDrag = { dx, dy -> handleDrag(dx, dy) },
-                        onToggleExpanded = {
-                            state.value = state.value.copy(expanded = !state.value.expanded)
-                        },
-                        onDismiss = onDismiss,
-                        onOpenSettings = onOpenSettings,
-                    )
-                }
+                setContent { OverlayHud(state = state.value) }
             }
 
             owner.create()
@@ -187,34 +192,27 @@ class OverlayHost(
         owner.stop()
     }
 
-    private fun handleDrag(dx: Float, dy: Float) {
-        val p = params ?: return
-        val view = composeView ?: return
-        val (screenW, screenH) = screenSize()
-
-        val clamped = OverlayBounds.clamp(
-            x = p.x + dx.toInt(),
-            y = p.y + dy.toInt(),
-            viewW = view.width,
-            viewH = view.height,
-            screenW = screenW,
-            screenH = screenH,
-        )
-
-        position = clamped
-        p.x = clamped.x
-        p.y = clamped.y
-        runCatching { windowManager.updateViewLayout(view, p) }
-        onPositionChanged(clamped)
-    }
-
+    /**
+     * NOT_FOCUSABLE never steals keyboard focus from the driver app.
+     *
+     * NOT_TOUCHABLE is the important one, and it is a safety fix rather than a
+     * simplification. A touchable window sitting over a driver app is a window
+     * that can eat a tap meant for Accept — either by swallowing it outright,
+     * or by tripping the receiving view's `filterTouchesWhenObscured`, which
+     * makes Android discard the touch silently with no feedback whatsoever. The
+     * driver taps, nothing happens, the offer expires, and he blames this app.
+     * Correctly.
+     *
+     * With this flag the HUD is inert: every touch passes straight through to
+     * whatever is underneath. Nothing in the HUD may become interactive again
+     * without reopening that failure mode.
+     */
     private fun buildParams(at: OverlayPosition) = WindowManager.LayoutParams(
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.WRAP_CONTENT,
         windowType(),
-        // NOT_FOCUSABLE: never steal keyboard focus from the driver app.
-        // We deliberately do NOT set NOT_TOUCHABLE — the HUD has buttons.
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
         PixelFormat.TRANSLUCENT,
     ).apply {
@@ -291,5 +289,4 @@ internal class OverlayViewOwner : SavedStateRegistryOwner, ViewModelStoreOwner {
 data class OverlayUiState(
     val economics: OfferEconomics? = null,
     val visible: Boolean = false,
-    val expanded: Boolean = false,
 )

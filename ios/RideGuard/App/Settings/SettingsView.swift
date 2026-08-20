@@ -36,7 +36,9 @@ struct SettingsView: View {
                     Text("Used as the starting point on the Quick tab, and as the tie-break when a shared screenshot does not say which app it came from.")
                 }
 
+                lockScreenSection
                 capabilitiesSection
+                updatesSection
             }
             .navigationTitle("Settings")
         }
@@ -80,16 +82,16 @@ struct SettingsView: View {
 
     // MARK: - Platforms
 
+    /// One toggle per platform and no commission field anywhere.
+    ///
+    /// Both Romanian driver apps print the driver's own take on the card —
+    /// Bolt says `11,62 lei (NET, taxe incluse)`, Uber says `Câștig net (fără
+    /// comisionul Uber)`. A commission slider here would be an invitation to
+    /// subtract a second time, and a driver who set it to 20% would see every
+    /// offer a fifth worse than reality with nothing on screen to reveal it.
     private var platformsSection: some View {
         ForEach(Platform.selectable, id: \.self) { platform in
             Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    LabeledContent("Commission") {
-                        Text("\(Int((commission(platform).wrappedValue * 100).rounded()))%")
-                            .monospacedDigit()
-                    }
-                    Slider(value: commission(platform), in: 0...0.5, step: 0.005)
-                }
                 Toggle("Fare shown is already net", isOn: fareIsNet(platform))
             } header: {
                 Text(platform.displayName)
@@ -101,16 +103,9 @@ struct SettingsView: View {
 
     private func footerText(for platform: Platform) -> String {
         if fareIsNet(platform).wrappedValue {
-            return "\(platform.displayName) is set to show the amount you keep. RideGuard reconstructs the gross for the breakdown, but takes no further commission off it."
+            return "\(platform.displayName) in Romania shows what you keep — the card says so in words. RideGuard subtracts nothing from it but fuel. Leave this on unless a real weekly statement says otherwise."
         }
-        return "\(platform.displayName) is set to show the fare before commission. RideGuard subtracts \(Int((commission(platform).wrappedValue * 100).rounded()))% before costs. Check this against a real weekly statement — getting it wrong is quietly worth a fifth of your earnings."
-    }
-
-    private func commission(_ platform: Platform) -> Binding<Double> {
-        Binding(
-            get: { state.settings.commissionRate(for: platform) },
-            set: { state.settings.setCommissionRate($0, for: platform) }
-        )
+        return "Set to treat the \(platform.displayName) fare as gross. RideGuard has no commission rate to apply, so nothing will actually be deducted — if your \(platform.displayName) really does show a gross fare, the numbers here will read better than reality."
     }
 
     private func fareIsNet(_ platform: Platform) -> Binding<Bool> {
@@ -120,6 +115,47 @@ struct SettingsView: View {
         )
     }
 
+    // MARK: - Lock Screen
+
+    /// Off by default and hidden entirely where the OS cannot do it, because a
+    /// toggle that silently does nothing is worse than no toggle.
+    @ViewBuilder
+    private var lockScreenSection: some View {
+        if LiveActivityController.isSupported {
+            Section {
+                Toggle("Keep the last verdict on the Lock Screen", isOn: $state.settings.liveActivityEnabled)
+                if state.settings.liveActivityEnabled && !LiveActivityController.isAvailable {
+                    Label(
+                        "Live Activities are switched off for RideGuard in iOS Settings → RideGuard, so nothing will appear.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                }
+            } header: {
+                Text("Lock Screen")
+            } footer: {
+                Text("After you check an offer, the verdict stays on the Lock Screen and in the Dynamic Island for ten minutes. It is the closest iPhone gets to the floating bubble on Android — but it can only show an offer you already checked, never one that just arrived.")
+            }
+        }
+    }
+
+    // MARK: - Updates
+
+    private var updatesSection: some View {
+        Section {
+            NavigationLink {
+                UpdateView()
+            } label: {
+                LabeledContent("Updates") {
+                    Text(AppVersion.current().version)
+                }
+            }
+        } footer: {
+            Text("RideGuard updates itself from GitHub rather than the App Store. It never installs anything without asking.")
+        }
+    }
+
     // MARK: - Capabilities
 
     /// Better the driver reads this here than files a one-star review asking
@@ -127,8 +163,8 @@ struct SettingsView: View {
     /// a roadmap item — see `docs/ios-platform-limits.md`.
     private var capabilitiesSection: some View {
         Section {
-            Label("Share a screenshot of an offer into RideGuard for an instant verdict", systemImage: "square.and.arrow.up")
-            Label("Type the numbers on the Quick tab", systemImage: "keyboard")
+            Label("Type the numbers on the Quick tab — fastest, always works", systemImage: "keyboard")
+            Label("Or screenshot the offer and share it here — reading it takes a few seconds", systemImage: "square.and.arrow.up")
             Label("Everything runs on your phone. Nothing is uploaded.", systemImage: "lock")
             if !Persistence.isAppGroupAvailable {
                 Label("App Group unavailable — the share extension cannot see your settings in this build.", systemImage: "exclamationmark.triangle")

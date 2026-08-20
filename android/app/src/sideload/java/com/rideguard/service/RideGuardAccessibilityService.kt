@@ -4,7 +4,6 @@ import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
-import com.rideguard.MainActivity
 import com.rideguard.capture.AccessibilitySource
 import com.rideguard.capture.AccessibilityTreeReader
 import com.rideguard.capture.OfferRecorder
@@ -72,9 +71,6 @@ class RideGuardAccessibilityService : AccessibilityService() {
             // We are inside an AccessibilityService, so take the overlay type
             // that needs no permission and cannot be hidden by the host app.
             useAccessibilityOverlayType = true,
-            onPositionChanged = { pos -> persistPosition(pos) },
-            onDismiss = { overlay?.hide() },
-            onOpenSettings = { openSettings() },
         )
 
         scope.launch {
@@ -164,27 +160,17 @@ class RideGuardAccessibilityService : AccessibilityService() {
         }
     }
 
-    /** Bolt and Uber lay out differently, so each remembers its own spot. */
+    /**
+     * Bolt and Uber lay out differently, so each has its own stored spot.
+     * Nothing writes these any more now that the HUD cannot be dragged;
+     * `OverlayHost.setPosition` clamps whatever an older build left behind.
+     */
     private suspend fun restorePositionFor(platform: Platform) {
         if (platform == currentPlatform && overlay?.position?.isSet == true) return
         currentPlatform = platform
         settings.hudPosition(platform).first()?.let { (x, y) ->
             overlay?.setPosition(OverlayPosition(x, y))
         }
-    }
-
-    private fun persistPosition(pos: OverlayPosition) {
-        val platform = currentPlatform
-        if (platform == Platform.UNKNOWN) return
-        scope.launch { settings.saveHudPosition(platform, pos.x, pos.y) }
-    }
-
-    private fun openSettings() {
-        startActivity(
-            Intent(this, MainActivity::class.java).addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP,
-            ),
-        )
     }
 
     private fun teardown() {

@@ -18,6 +18,9 @@ struct QuickEntryView: View {
     @State private var tripKmText = ""
     @State private var tripMinText = ""
     @State private var justLogged = false
+    @State private var lastDraft: QuickEntryDraft?
+
+    private let draftStore = QuickEntryDraftStore()
 
     @FocusState private var focused: Field?
 
@@ -36,6 +39,13 @@ struct QuickEntryView: View {
 
     private var economics: OfferEconomics? {
         guard let fare, fare > 0 else { return nil }
+        // Stricter than the calculator on purpose. `RideOffer.chargeableKm`
+        // falls back to the paid leg alone when a PARSE could not find the
+        // pickup distance, and marks the result down for it. Here there is no
+        // parse: the driver either knows the pickup distance or can type 0.
+        // Quietly costing a hand-typed offer on the trip leg only would flatter
+        // exactly the offers this app exists to catch.
+        guard pickupKm != nil, tripKm != nil else { return nil }
         let offer = state.makeOffer(
             platform: platform,
             fare: fare,
@@ -58,6 +68,7 @@ struct QuickEntryView: View {
                     platformPicker
                     fareCard
                     legsCard
+                    reuseLastChip
                     verdictSection
                 }
                 .padding(.horizontal)
@@ -67,7 +78,7 @@ struct QuickEntryView: View {
             .navigationTitle("Quick check")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Clear", role: .destructive, action: clear)
                         .disabled(!hasAnyInput)
                 }
@@ -77,7 +88,7 @@ struct QuickEntryView: View {
                     Button("Done") { focused = nil }
                 }
             }
-            .onAppear { platform = state.settings.defaultPlatform }
+            .onAppear(perform: restoreDraft)
         }
     }
 
@@ -98,9 +109,10 @@ struct QuickEntryView: View {
                     .font(.subheadline.weight(.semibold))
                 Spacer()
                 // Restating the setting here is not clutter: whether the
-                // displayed fare is gross or net changes the answer by a fifth,
-                // and it is the single easiest thing to have configured wrong.
-                Text(state.settings.fareIsNet(for: platform) ? "already net" : "before commission")
+                // displayed fare is what the driver keeps or what the passenger
+                // pays changes the answer by a fifth, and it is the single
+                // easiest thing to have configured wrong.
+                Text(state.settings.fareIsNet(for: platform) ? "what you keep" : "treated as gross")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -176,13 +188,43 @@ struct QuickEntryView: View {
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color(.tertiarySystemFill)))
     }
 
+    // MARK: - Reusing the last entry
+
+    /// Offered, never applied automatically.
+    ///
+    /// The legs repeat all evening — the same driver works the same patch —
+    /// but silently prefilling them means a distracted driver reads a verdict
+    /// for the previous offer with this offer's fare, which is worse than no
+    /// help at all. One tap costs nothing and cannot lie.
+    @ViewBuilder
+    private var reuseLastChip: some View {
+        if let lastDraft, lastDraft.hasLegs, !hasAnyLegInput {
+            Button {
+                pickupKmText = lastDraft.pickupKm
+                pickupMinText = lastDraft.pickupMin
+                tripKmText = lastDraft.tripKm
+                tripMinText = lastDraft.tripMin
+            } label: {
+                Label("Same legs as last time · \(lastDraft.summary)", systemImage: "arrow.counterclockwise")
+                    .font(.footnote)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+        }
+    }
+
+    private var hasAnyLegInput: Bool {
+        ![pickupKmText, pickupMinText, tripKmText, tripMinText].allSatisfy(\.isEmpty)
+    }
+
     // MARK: - Verdict
 
     @ViewBuilder
     private var verdictSection: some View {
         if let economics {
             VerdictCardView(economics: economics)
-                .animation(.snappy, value: economics.net)
+                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: economics.net)
 
             HStack(spacing: 12) {
                 Button {
@@ -228,10 +270,10 @@ struct QuickEntryView: View {
 
     private var hintText: String {
         if fare == nil { return "Type the fare to see what is actually left of it." }
-        // Refusing to guess a zero-km pickup is a deliberate rule shared with
-        // the parser: a missing deadhead leg flatters the offer exactly when
-        // the driver needs the truth.
-        return "Add both legs — pickup and trip distance — so the fuel and wear can be charged on every kilometre you actually drive."
+        // Refusing to guess a zero-km pickup is a deliberate rule: a missing
+        // deadhead leg flatters the offer exactly when the driver needs the
+        // truth. If the passenger really is at the kerb, type 0.
+        return "Add both distances — to the passenger and with them — so the fuel is charged on every kilometre you actually drive. If they are already at your window, type 0 for the pickup."
     }
 
     // MARK: - Actions
@@ -239,12 +281,35 @@ struct QuickEntryView: View {
     private func log(_ decision: HistoryEntry.Decision) {
         guard let economics else { return }
         state.log(economics, source: .manual, decision: decision)
+        saveDraft()
+        LiveActivityController.show(economics, enabled: state.settings.liveActivityEnabled)
         withAnimation { justLogged = true }
         focused = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             withAnimation { justLogged = false }
             clear()
         }
+    }
+
+    private func restoreDraft() {
+        let saved = draftStore.load()
+        lastDraft = saved
+        // The platform IS restored outright — a driver works one app for hours
+        // and re-picking it every time is friction with no upside. The numbers
+        // are not: see `reuseLastChip`.
+        platform = saved?.platform ?? state.settings.defaultPlatform
+    }
+
+    private func saveDraft() {
+        let draft = QuickEntryDraft(
+            platform: platform,
+            pickupKm: pickupKmText,
+            pickupMin: pickupMinText,
+            tripKm: tripKmText,
+            tripMin: tripMinText
+        )
+        draftStore.save(draft)
+        lastDraft = draft
     }
 
     private func clear() {

@@ -55,7 +55,7 @@ struct VerdictCardView: View {
                     .font(.system(size: 44, weight: .bold, design: .rounded))
                     .foregroundStyle(economics.isLossMaking ? Color.red : Color.primary)
                     .contentTransition(.numericText())
-                Text("in your pocket, after commission, fuel and wear")
+                Text("in your pocket, after fuel")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -156,15 +156,19 @@ struct VerdictCardView: View {
                 )
                 row("Platform commission", "−" + NumberParsing.formatMoney(economics.commission, currency: currency))
             }
+            // The number the driver compares between offers, spelled out
+            // against the FULL distance rather than the paid leg the platform
+            // priced. Sitting directly above the fuel line, it shows exactly
+            // what the road takes back.
+            row(
+                "Per km driven, before fuel",
+                "\(NumberParsing.formatRate(economics.earningsPerKm)) \(currency)/km"
+            )
             // Distance is spelled out because it is the crux: the platform
             // priced the paid leg, we are costing every kilometre the car moves.
             row(
                 "Fuel / energy · \(NumberParsing.formatRate(economics.totalKm, decimals: 1)) km",
                 "−" + NumberParsing.formatMoney(economics.energyCost, currency: currency)
-            )
-            row(
-                "Wear, tyres, depreciation",
-                "−" + NumberParsing.formatMoney(economics.wearCost, currency: currency)
             )
             row("Net", NumberParsing.formatMoney(economics.net, currency: currency), emphasised: true)
         }
@@ -220,21 +224,21 @@ private struct BulletLabelStyle: LabelStyle {
 }
 
 #Preview {
+    // Transcribed from a real Bolt card: "11,62 lei (NET, taxe incluse)",
+    // 2.8 km to collect for a 3 km ride.
     let offer = RideOffer(
         platform: .bolt,
-        fare: 32.5,
-        currency: "RON",
-        pickupKm: 2.4,
-        pickupMin: 5,
-        tripKm: 8.1,
-        tripMin: 18,
-        fareIsNet: false,
-        productName: "Comfort"
+        fare: 11.62,
+        currency: "lei",
+        pickupKm: 2.8,
+        pickupMin: 6,
+        tripKm: 3.0,
+        tripMin: 6,
+        fareIsNet: Platform.bolt.fareShownIsNetByDefault
     )
     let economics = ProfitCalculator(
         vehicle: .defaultRO,
-        thresholds: DriverThresholds(),
-        commissionRateFor: { _ in 0.20 }
+        thresholds: DriverThresholds()
     ).evaluate(offer)
 
     return Group {

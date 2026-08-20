@@ -1,0 +1,164 @@
+# XcodeGen spec — the source of truth for the Xcode project.
+#
+# There is no `RideGuard.xcodeproj` in the repository, on purpose. A
+# `project.pbxproj` is a 2000-line generated file that nobody can review, that
+# every branch conflicts on, and that was written here by hand on a machine
+# with no Xcode. This file is the same information in a form a human can read
+# and a diff can explain.
+#
+#     brew install xcodegen
+#     cd ios && xcodegen generate && open RideGuard.xcodeproj
+#
+# Everything you must set up BEFORE that project will run on a phone — team,
+# bundle IDs, App Group, signing — is in README.md.
+
+name: RideGuard
+
+options:
+  bundleIdPrefix: com.rideguard
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  # A generated project should not be in git; regenerate it instead.
+  generateEmptyDirectories: false
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    # THE two version numbers. `MARKETING_VERSION` is what a human reads;
+    # `CURRENT_PROJECT_VERSION` is the integer the updater compares and the
+    # `build` field the release must publish in updates/latest.json. Bump both,
+    # keep the second an integer, never let them drift from the manifest.
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # iPhone only. A driver's phone is in a windscreen mount; nobody is running
+    # this on an iPad on a dashboard.
+    TARGETED_DEVICE_FAMILY: "1"
+    CODE_SIGN_STYLE: Automatic
+    # Filled in by whoever holds the Apple Developer account. Xcode will also
+    # write it here the first time you pick a team in the Signing pane.
+    DEVELOPMENT_TEAM: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: minimal
+
+targets:
+
+  # The domain. Foundation only — see Package.swift for why that rule is
+  # absolute. Built here as a framework so `import RideGuardCore` means the
+  # same thing in Xcode as it does under `swift test`.
+  RideGuardCore:
+    type: framework
+    platform: iOS
+    sources:
+      - path: RideGuard/Core
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rideguard.core
+        PRODUCT_NAME: RideGuardCore
+        GENERATE_INFOPLIST_FILE: YES
+        DEFINES_MODULE: YES
+        # The app and both extensions link it. Building it once, dynamically,
+        # keeps the extensions small — an appex has a hard memory ceiling.
+        SKIP_INSTALL: NO
+
+  RideGuard:
+    type: application
+    platform: iOS
+    sources:
+      - path: RideGuard/App
+      - path: RideGuard/Capture
+      - path: RideGuardLiveActivity
+      - path: RideGuard/Assets.xcassets
+    dependencies:
+      - target: RideGuardCore
+        embed: true
+      # XcodeGen embeds app-extension dependencies into PlugIns for us.
+      - target: RideGuardShareExtension
+      - target: RideGuardWidgets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rideguard.app
+        PRODUCT_NAME: RideGuard
+        INFOPLIST_FILE: RideGuard/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: RideGuard/RideGuard.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+  # Screenshot in, verdict out. The only cross-app path iOS actually allows.
+  RideGuardShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: RideGuardShareExtension
+        excludes:
+          - Info.plist
+      - path: RideGuard/Capture
+      # Two files from the app, deliberately: settings and history live in the
+      # App Group and must be read by the same code the app writes with, and
+      # the verdict card must render identically in both places.
+      - path: RideGuard/App/Persistence.swift
+      - path: RideGuard/App/Quick/VerdictCardView.swift
+      - path: RideGuardLiveActivity
+    dependencies:
+      - target: RideGuardCore
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rideguard.app.share
+        PRODUCT_NAME: RideGuardShare
+        INFOPLIST_FILE: RideGuardShareExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        # Same group as the app. Without it the extension reads a default
+        # vehicle profile out of its own container and gives confidently wrong
+        # answers — the worst failure mode this app has.
+        CODE_SIGN_ENTITLEMENTS: RideGuardShareExtension/RideGuardShareExtension.entitlements
+
+  # Live Activity host. Optional in every sense: delete this target and the app
+  # still does everything that matters.
+  RideGuardWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: RideGuardWidgets
+        excludes:
+          - Info.plist
+      - path: RideGuardLiveActivity/VerdictActivityAttributes.swift
+    dependencies:
+      - target: RideGuardCore
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rideguard.app.widgets
+        PRODUCT_NAME: RideGuardWidgets
+        INFOPLIST_FILE: RideGuardWidgets/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+
+  # The domain suite. Runs against RideGuardCore alone, so it needs no host
+  # application and no signing — and it is the same suite `swift test` runs
+  # from a terminal without Xcode at all.
+  RideGuardTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: RideGuardTests
+    dependencies:
+      - target: RideGuardCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rideguard.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  RideGuard:
+    build:
+      targets:
+        RideGuard: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - RideGuardTests
+    archive:
+      config: Release

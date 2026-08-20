@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rideguard.R
 import com.rideguard.data.SettingsRepository
-import com.rideguard.domain.model.DriverThresholds
 import com.rideguard.domain.model.FuelType
 import com.rideguard.domain.model.VehicleProfile
 import com.rideguard.domain.parse.NumberParsing
@@ -37,16 +36,22 @@ import com.rideguard.ui.NumberField
 import com.rideguard.ui.PrimaryButton
 import com.rideguard.ui.RgColors
 import com.rideguard.ui.SecondaryButton
-import com.rideguard.ui.TextField
 import kotlinx.coroutines.launch
 
+/** Welcome, then the car. Nothing else earns a step. */
+private const val LAST_STEP = 1
+
 /**
- * First run. Four short steps, then permissions.
+ * First run: what the app does, and the two numbers it cannot work without.
  *
- * Kept deliberately brief because a driver setting this up is very often
- * sitting in a car park between rides, not at a desk. Anything not strictly
- * needed to make the maths correct has a sensible default and lives in
- * Settings instead.
+ * Every extra question here is a driver who never finishes setup — this is
+ * done in a car park between rides, not at a desk. Targets are deliberately
+ * absent: a driver who has not yet seen a single verdict has no basis to
+ * invent one, so asking him to produce three numbers before his first ride
+ * gets guesses that then look exactly as authoritative as the figures he
+ * actually knows. The defaults are honest, and Settings is where they get
+ * tightened once a week of driving has given him something to tighten them
+ * against.
  */
 @Composable
 fun OnboardingScreen(
@@ -56,26 +61,19 @@ fun OnboardingScreen(
     val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf(0) }
 
-    var label by remember { mutableStateOf("My car") }
     var fuelType by remember { mutableStateOf(FuelType.PETROL) }
     var consumption by remember { mutableStateOf("7.0") }
     var energyPrice by remember { mutableStateOf("7.5") }
-    var currency by remember { mutableStateOf("RON") }
-    var wear by remember { mutableStateOf("0.35") }
-
-    var minNetPerKm by remember { mutableStateOf("1.5") }
-    var minNetPerHour by remember { mutableStateOf("40") }
-    var maxDeadhead by remember { mutableStateOf("0.8") }
 
     fun num(s: String, fallback: Double) = NumberParsing.parseDecimal(s) ?: fallback
 
+    // Name and currency keep their defaults and stay editable in Settings.
+    // Neither moves a single figure in a verdict, so neither is worth a field
+    // on the one screen a driver has to get through before the app is useful.
     val vehicle = VehicleProfile(
-        label = label.ifBlank { "My car" },
         fuelType = fuelType,
         consumptionPer100km = num(consumption, 7.0),
         energyPrice = num(energyPrice, 7.5),
-        currency = currency.ifBlank { "RON" },
-        wearCostPerKm = num(wear, 0.35),
     )
 
     Column(
@@ -86,31 +84,16 @@ fun OnboardingScreen(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        StepIndicator(step = step, total = 4)
+        StepIndicator(step = step, total = LAST_STEP + 1)
 
         when (step) {
             0 -> WelcomeStep()
 
             1 -> CarStep(
-                label = label, onLabel = { label = it },
                 fuelType = fuelType, onFuelType = { fuelType = it },
                 consumption = consumption, onConsumption = { consumption = it },
                 energyPrice = energyPrice, onEnergyPrice = { energyPrice = it },
-                currency = currency, onCurrency = { currency = it },
                 vehicle = vehicle,
-            )
-
-            2 -> WearStep(
-                wear = wear,
-                onWear = { wear = it },
-                vehicle = vehicle,
-            )
-
-            3 -> TargetsStep(
-                minNetPerKm = minNetPerKm, onMinNetPerKm = { minNetPerKm = it },
-                minNetPerHour = minNetPerHour, onMinNetPerHour = { minNetPerHour = it },
-                maxDeadhead = maxDeadhead, onMaxDeadhead = { maxDeadhead = it },
-                currency = vehicle.currency,
             )
         }
 
@@ -121,21 +104,14 @@ fun OnboardingScreen(
                 SecondaryButton("Back") { step-- }
             }
             PrimaryButton(
-                label = if (step == 3) "Finish setup" else "Continue",
+                label = if (step == LAST_STEP) "Finish setup" else "Continue",
                 modifier = Modifier.weight(1f),
             ) {
-                if (step < 3) {
+                if (step < LAST_STEP) {
                     step++
                 } else {
                     scope.launch {
                         settings.saveVehicle(vehicle)
-                        settings.saveThresholds(
-                            DriverThresholds(
-                                minNetPerHour = num(minNetPerHour, 40.0),
-                                minNetPerKm = num(minNetPerKm, 1.5),
-                                maxDeadheadRatio = num(maxDeadhead, 0.8),
-                            ),
-                        )
                         settings.setOnboarded(true)
                         onFinished()
                     }
@@ -168,23 +144,40 @@ private fun WelcomeStep() {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Title(stringResource(R.string.onboarding_welcome_title))
         Body(stringResource(R.string.onboarding_welcome_body))
+
+        // The accessibility grant is the one thing worth explaining before
+        // Android asks for it. A driver who does not understand why a ride app
+        // wants an accessibility service will refuse it, and refusing it leaves
+        // him with an app that does nothing at all.
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(RgColors.Surface)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.onboarding_permissions_title),
+                color = RgColors.Primary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Body(stringResource(R.string.onboarding_permissions_body))
+        }
     }
 }
 
 @Composable
 private fun CarStep(
-    label: String, onLabel: (String) -> Unit,
     fuelType: FuelType, onFuelType: (FuelType) -> Unit,
     consumption: String, onConsumption: (String) -> Unit,
     energyPrice: String, onEnergyPrice: (String) -> Unit,
-    currency: String, onCurrency: (String) -> Unit,
     vehicle: VehicleProfile,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Title(stringResource(R.string.onboarding_car_title))
         Body(stringResource(R.string.onboarding_car_body))
-
-        TextField("Car name", label, onLabel)
 
         ChipRow(
             options = FuelType.entries,
@@ -209,65 +202,22 @@ private fun CarStep(
             label = if (fuelType.isElectric) "Electricity price" else "Fuel price",
             value = energyPrice,
             onValueChange = onEnergyPrice,
-            suffix = "$currency / ${vehicle.fuelType.unitLabel}",
+            suffix = "${vehicle.currency} / ${vehicle.fuelType.unitLabel}",
             helper = "What you actually pay at your usual station or charger.",
         )
 
-        TextField("Currency", currency, onCurrency)
-
-        CostPreview(vehicle, showWear = false)
-    }
-}
-
-@Composable
-private fun WearStep(wear: String, onWear: (String) -> Unit, vehicle: VehicleProfile) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Title(stringResource(R.string.onboarding_wear_title))
-        Body(stringResource(R.string.onboarding_wear_body))
-
-        NumberField(
-            label = "Wear and tear",
-            value = wear,
-            onValueChange = onWear,
-            suffix = "${vehicle.currency} / km",
-            helper = "Tyres, servicing, brakes, depreciation. If you are unsure, leave the default — it is deliberately conservative.",
-        )
-
-        CostPreview(vehicle, showWear = true)
-    }
-}
-
-@Composable
-private fun TargetsStep(
-    minNetPerKm: String, onMinNetPerKm: (String) -> Unit,
-    minNetPerHour: String, onMinNetPerHour: (String) -> Unit,
-    maxDeadhead: String, onMaxDeadhead: (String) -> Unit,
-    currency: String,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Title(stringResource(R.string.onboarding_targets_title))
-        Body(stringResource(R.string.onboarding_targets_body))
-
-        NumberField("Minimum per km", minNetPerKm, onMinNetPerKm, suffix = "$currency / km")
-        NumberField("Minimum per hour", minNetPerHour, onMinNetPerHour, suffix = "$currency / h")
-        NumberField(
-            label = "Maximum pickup ratio",
-            value = maxDeadhead,
-            onValueChange = onMaxDeadhead,
-            suffix = "×",
-            helper = "Pickup distance divided by trip distance. At 0.8 you are driving 8 km to collect for every 10 km paid — past that, most offers are not worth taking.",
-        )
+        CostPreview(vehicle)
     }
 }
 
 /**
- * Turns the abstract inputs into the one number that makes them concrete:
- * what a single kilometre costs. Watching this move as they type is what
- * makes drivers take the wear figure seriously.
+ * Turns two abstract inputs into the one number that makes them concrete:
+ * what a single kilometre costs. Watching this figure move as he types is what
+ * makes a driver bother to correct the defaults instead of tapping through.
  */
 @Composable
-private fun CostPreview(vehicle: VehicleProfile, showWear: Boolean) {
-    val perKm = if (showWear) vehicle.totalCostPerKm else vehicle.energyCostPerKm
+private fun CostPreview(vehicle: VehicleProfile) {
+    val perKm = vehicle.totalCostPerKm
     Column(
         Modifier
             .fillMaxWidth()
@@ -277,7 +227,7 @@ private fun CostPreview(vehicle: VehicleProfile, showWear: Boolean) {
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Text(
-            text = if (showWear) "Every kilometre costs you" else "Fuel alone costs you",
+            text = "Every kilometre costs you",
             color = RgColors.Secondary,
             fontSize = 11.sp,
         )

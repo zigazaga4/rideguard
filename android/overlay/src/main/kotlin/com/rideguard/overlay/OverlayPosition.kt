@@ -15,10 +15,12 @@ import kotlin.math.roundToInt
  *
  * Both Bolt and Uber put the offer card and its Accept button in the lower
  * portion of the screen, with the map above. So we clamp the HUD out of the
- * bottom band entirely. The driver can still drag it anywhere else.
+ * bottom band entirely, over the map, where it also happens to be easiest to
+ * read.
  *
- * This is not a nicety. It is the difference between an app that works and an
- * app that costs its user money.
+ * The window is `FLAG_NOT_TOUCHABLE` as well, so this is belt and braces — but
+ * the belt is worth keeping. Staying off the Accept button costs nothing and
+ * removes any argument about which windows the platform counts as obscuring.
  */
 data class OverlayPosition(val x: Int, val y: Int) {
     companion object {
@@ -40,7 +42,7 @@ object OverlayBounds {
     /** Keep clear of the status bar / notch region too. */
     const val TOP_INSET_FRACTION = 0.03f
 
-    /** Minimum visible sliver so the HUD can never be dragged off-screen. */
+    /** Minimum visible sliver, so a stale saved x can never park it off-screen. */
     private const val MIN_VISIBLE_PX = 48
 
     /**
@@ -72,8 +74,8 @@ object OverlayBounds {
     }
 
     /**
-     * Where a fresh install puts the HUD: upper area, inset from the left.
-     * Sits over the map on both driver apps, well clear of the card.
+     * Where the HUD goes: upper area, inset from the left. Sits over the map on
+     * both driver apps, well clear of the card.
      */
     fun defaultFor(screenW: Int, screenH: Int): OverlayPosition = OverlayPosition(
         x = (screenW * 0.04f).roundToInt(),

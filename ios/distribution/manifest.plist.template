@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  OTA install manifest for `itms-services://`.
+
+  The release script fills the placeholders and uploads the RESULT next to the
+  .ipa as a GitHub release asset, then points `ios.manifestUrl` in
+  updates/latest.json at it.
+
+  Placeholders:
+    __IPA_URL__       https URL of the signed .ipa release asset
+    __VERSION__       marketing version, e.g. 1.2.0 — must match `ios.version`
+    __ICON_57_URL__   optional 57x57 PNG; delete the whole <dict> if unused
+    __ICON_512_URL__  optional 512x512 PNG; delete the whole <dict> if unused
+
+  Two things break this file silently and are worth checking first when an
+  install fails:
+
+  1. Every URL here MUST be https with a certificate iOS trusts. GitHub release
+     asset URLs qualify. Plain http fails with a useless "Cannot connect to
+     github.com".
+  2. `bundle-identifier` must be EXACTLY the app's identifier. A mismatch makes
+     iOS install a second copy of the app beside the first, or refuse outright.
+-->
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>assets</key>
+			<array>
+				<dict>
+					<key>kind</key>
+					<string>software-package</string>
+					<key>url</key>
+					<string>__IPA_URL__</string>
+				</dict>
+				<dict>
+					<key>kind</key>
+					<string>display-image</string>
+					<key>url</key>
+					<string>__ICON_57_URL__</string>
+				</dict>
+				<dict>
+					<key>kind</key>
+					<string>full-size-image</string>
+					<key>url</key>
+					<string>__ICON_512_URL__</string>
+				</dict>
+			</array>
+			<key>metadata</key>
+			<dict>
+				<key>bundle-identifier</key>
+				<string>com.rideguard.app</string>
+				<key>bundle-version</key>
+				<string>__VERSION__</string>
+				<key>kind</key>
+				<string>software</string>
+				<key>title</key>
+				<string>RideGuard</string>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

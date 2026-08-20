@@ -42,18 +42,6 @@ struct VehicleSetupView: View {
             }
 
             Section {
-                DecimalTextField(
-                    title: "Wear per km",
-                    value: $vehicle.wearCostPerKm,
-                    unit: "\(vehicle.currency)/km"
-                )
-            } header: {
-                Text("Everything that is not fuel")
-            } footer: {
-                Text("Tyres, servicing, brakes, insurance and depreciation, spread over a kilometre. Drivers systematically forget this and it is typically 30-50% of the true cost of a kilometre. If you have no idea, leave the default.")
-            }
-
-            Section {
                 TextField("RON", text: $vehicle.currency)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
@@ -72,16 +60,9 @@ struct VehicleSetupView: View {
             }
 
             Section {
-                LabeledContent("Energy") {
-                    Text("\(NumberParsing.formatRate(vehicle.energyCostPerKm)) \(vehicle.currency)/km").monospacedDigit()
-                }
-                LabeledContent("Wear") {
-                    Text("\(NumberParsing.formatRate(vehicle.wearCostPerKm)) \(vehicle.currency)/km").monospacedDigit()
-                }
                 LabeledContent {
                     Text("\(NumberParsing.formatRate(vehicle.totalCostPerKm)) \(vehicle.currency)/km")
-                        .font(.body.weight(.semibold))
-                        .monospacedDigit()
+                        .font(.body.weight(.semibold).monospacedDigit())
                 } label: {
                     Text("Every kilometre costs you").font(.body.weight(.semibold))
                 }
@@ -93,9 +74,10 @@ struct VehicleSetupView: View {
             } header: {
                 Text("What this works out to")
             } footer: {
-                // Stating it here because it is the single modelling decision
-                // that makes RideGuard disagree with the driver app's own maths.
-                Text("This is charged on every kilometre the car moves — including driving to the passenger, which no platform pays you for.")
+                // Stating both halves here because they are the two modelling
+                // decisions that make RideGuard disagree with the driver app's
+                // own maths — and the second one is the one drivers challenge.
+                Text("Charged on every kilometre the car moves, including driving to the passenger, which no platform pays you for.\n\nFuel only. Tyres, servicing and depreciation are real, but a number invented at a petrol station would sit in every verdict looking just as solid as the two figures you actually know.")
             }
         }
     }
@@ -124,7 +106,7 @@ struct DecimalTextField: View {
             TextField("0", text: $text)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
-                .monospacedDigit()
+                .font(.body.monospacedDigit())
                 .focused($focused)
                 .frame(maxWidth: 110)
             if let unit {
@@ -134,20 +116,24 @@ struct DecimalTextField: View {
             }
         }
         .onAppear { text = NumberParsing.formatRate(value) }
-        .onChange(of: text) { _, new in
+        .onChange(of: text) { new in
             if let parsed = NumberParsing.parseDecimal(new) { value = parsed }
             // An empty field is mid-edit, not zero: leaving `value` alone means
             // clearing the field to retype does not briefly write a 0 that a
             // live verdict would react to.
         }
-        .onChange(of: focused) { _, isFocused in
+        .onChange(of: focused) { isFocused in
             // Re-normalise on blur so "7," or "007" settles to something sane.
             if !isFocused { text = NumberParsing.formatRate(value) }
         }
     }
 }
 
+private struct VehicleSetupPreview: View {
+    @State private var vehicle = VehicleProfile.defaultRO
+    var body: some View { NavigationStack { VehicleSetupView(vehicle: $vehicle) } }
+}
+
 #Preview {
-    @Previewable @State var vehicle = VehicleProfile.defaultRO
-    return NavigationStack { VehicleSetupView(vehicle: $vehicle) }
+    VehicleSetupPreview()
 }

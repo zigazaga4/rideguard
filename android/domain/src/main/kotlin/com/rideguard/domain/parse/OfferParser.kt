@@ -31,9 +31,12 @@ data class ParserHints(
          * market here, then English. Matching is case-insensitive substring.
          */
         val DEFAULT_OFFER_KEYWORDS = listOf(
-            // Romanian
-            "accept", "acceptă", "refuz", "refuză", "respinge",
-            "cursă", "comandă", "preluare", "destinaț", "client",
+            // Romanian. "potrivire" is the accept verb on BOTH real cards —
+            // neither Bolt nor Uber says "Acceptă" or "Accept" anywhere in the
+            // Romanian build, so without it the gate leans entirely on words
+            // that only one of the two happens to show.
+            "potrivire", "accept", "acceptă", "refuz", "refuză", "respinge",
+            "cursă", "comandă", "preluare", "destinaț", "client", "numerar",
             // English
             "decline", "dismiss", "pickup", "pick up", "dropoff", "drop off",
             "away", "trip", "ride", "fare", "rider", "passenger",
@@ -152,6 +155,13 @@ abstract class HeuristicOfferParser(
 
     /**
      * Two legs, in reading order: deadhead first, paid leg second.
+     *
+     * Distances and durations are assigned SEPARATELY, which is what lets the
+     * same code read both `6 min • 2.8 km` (Bolt, minutes first) and
+     * `La 12 min. (5.4 km) distanță` (Uber, minutes first but parenthesised)
+     * and the older `2,4 km · 5 min` orders. Pairing the two inside a block
+     * would have to know which app wrote it; only the vertical order matters,
+     * and that is the same everywhere.
      *
      * With only one value we cannot know which leg it is, so we assign it to
      * the trip and leave pickup null — the confidence penalty above makes the

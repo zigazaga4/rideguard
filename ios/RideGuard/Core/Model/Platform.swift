@@ -32,27 +32,24 @@ public enum Platform: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// Default platform take rate. Varies by country, driver tier and
-    /// promotion, so it is only a starting value — the driver overrides it in
-    /// settings after checking a real payout statement.
-    public var defaultCommissionRate: Double {
-        switch self {
-        case .bolt: return 0.20
-        case .uber: return 0.25
-        case .unknown: return 0.0
-        }
-    }
+    /// Zero for every platform, and that is not an oversight.
+    ///
+    /// Both Romanian driver apps print the driver's own take on the card. Bolt
+    /// spells it out — `11,62 lei (NET, taxe incluse)` — and Uber labels the
+    /// figure `Câștig net (fără comisionul Uber)`. There is nothing left to
+    /// subtract. An earlier version defaulted Bolt to a 20% take rate, which
+    /// made every Bolt offer read a fifth worse than reality: nothing crashed,
+    /// no test failed, the numbers were simply and quietly wrong, and a
+    /// pessimistic verdict talks a driver out of rides that were fine.
+    ///
+    /// The field survives because commission is real in other markets and the
+    /// calculator still models it. It just has no default to apply here.
+    public var defaultCommissionRate: Double { 0.0 }
 
     /// Whether the fare shown on the offer card is ALREADY net of commission.
-    /// This differs by market and is the single easiest way to be quietly
-    /// wrong by 20%. Always verify against a real weekly statement.
-    public var fareShownIsNetByDefault: Bool {
-        switch self {
-        case .bolt: return false
-        case .uber: return true
-        case .unknown: return true
-        }
-    }
+    /// True everywhere for the same reason as above — verified against
+    /// screenshots of live offers, not against documentation.
+    public var fareShownIsNetByDefault: Bool { true }
 
     public static func fromPackage(_ pkg: String?) -> Platform {
         allCases.first { !$0.packageName.isEmpty && $0.packageName == pkg } ?? .unknown

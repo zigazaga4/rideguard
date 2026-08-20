@@ -42,39 +42,37 @@ public struct VehicleProfile: Equatable, Codable, Sendable {
     /// Price per litre (or per kWh) at the driver's usual station.
     public var energyPrice: Double
     public var currency: String
-    /// Everything that is not fuel: tyres, servicing, brakes, depreciation,
-    /// insurance amortised per km. Drivers systematically forget this, and it
-    /// is typically 30-50% of true cost per km. Default is a conservative
-    /// placeholder — the settings screen explains it.
-    public var wearCostPerKm: Double
 
     public init(
         label: String = "My car",
         fuelType: FuelType = .petrol,
         consumptionPer100km: Double = 7.0,
         energyPrice: Double = 7.5,
-        currency: String = "RON",
-        wearCostPerKm: Double = 0.35
+        currency: String = "RON"
     ) {
         self.label = label
         self.fuelType = fuelType
         self.consumptionPer100km = consumptionPer100km
         self.energyPrice = energyPrice
         self.currency = currency
-        self.wearCostPerKm = wearCostPerKm
     }
 
     /// Cost of energy alone, per kilometre.
     public var energyCostPerKm: Double { (consumptionPer100km / 100.0) * energyPrice }
 
-    /// Total marginal cost of putting one more kilometre on this car.
-    public var totalCostPerKm: Double { energyCostPerKm + wearCostPerKm }
+    /// Marginal cost of putting one more kilometre on this car.
+    ///
+    /// Fuel only. Tyres, servicing and depreciation are real costs, but asking
+    /// a driver to put a number on them at a petrol station is asking him to
+    /// invent one — and an invented input propagates into every verdict looking
+    /// exactly as authoritative as the two figures he actually knows. Two
+    /// honest inputs beat three where one is a guess.
+    public var totalCostPerKm: Double { energyCostPerKm }
 
     public var isPlausible: Bool {
         consumptionPer100km > 0.0
             && consumptionPer100km < 100.0
             && energyPrice > 0.0
-            && wearCostPerKm >= 0.0
     }
 
     /// Sensible starting point for a Romanian Bolt/Uber driver:

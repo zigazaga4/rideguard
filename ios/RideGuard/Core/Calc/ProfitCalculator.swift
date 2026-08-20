@@ -4,10 +4,10 @@ import Foundation
 /// twelve seconds he is given.
 ///
 /// The critical modelling decision: **cost is charged on the FULL distance**,
-/// deadhead included. The driver burns fuel and wears tyres getting to the
-/// passenger just as surely as carrying them, but the platforms only ever
-/// show the fare against the paid leg. That gap is where money quietly
-/// disappears, and closing it is the entire point of this app.
+/// deadhead included. The driver burns fuel getting to the passenger just as
+/// surely as carrying them, but the platforms only ever show the fare against
+/// the paid leg. That gap is where money quietly disappears, and closing it is
+/// the entire point of this app.
 public struct ProfitCalculator {
     private let vehicle: VehicleProfile
     private let thresholds: DriverThresholds
@@ -27,7 +27,7 @@ public struct ProfitCalculator {
     public func evaluate(_ offer: RideOffer) -> OfferEconomics? {
         guard offer.isComputable else { return nil }
 
-        guard let totalKm = offer.totalKm ?? offer.tripKm else { return nil }
+        guard let totalKm = offer.chargeableKm else { return nil }
         if totalKm <= 0.0 { return nil }
         let totalMin = offer.totalMin
 
@@ -47,17 +47,15 @@ public struct ProfitCalculator {
 
         // --- Cost, charged on every kilometre the car actually moves ------
         let energyCost = totalKm * vehicle.energyCostPerKm
-        let wearCost = totalKm * vehicle.wearCostPerKm
 
-        let net = afterCommission - energyCost - wearCost
+        let net = afterCommission - energyCost
 
         // --- Rates --------------------------------------------------------
         let hours: Double? = {
             guard let totalMin, totalMin > 0.0 else { return nil }
             return totalMin / 60.0
         }()
-        let grossPerKm = gross / totalKm
-        let grossPerHour = hours.map { gross / $0 }
+        let earningsPerKm = afterCommission / totalKm
         let netPerKm = net / totalKm
         let netPerHour = hours.map { net / $0 }
 
@@ -78,11 +76,10 @@ public struct ProfitCalculator {
             totalMin: totalMin,
             gross: gross,
             commission: commission,
+            afterCommission: afterCommission,
             energyCost: energyCost,
-            wearCost: wearCost,
             net: net,
-            grossPerKm: grossPerKm,
-            grossPerHour: grossPerHour,
+            earningsPerKm: earningsPerKm,
             netPerKm: netPerKm,
             netPerHour: netPerHour,
             deadheadRatio: deadheadRatio,
@@ -120,7 +117,7 @@ public struct ProfitCalculator {
         var reasons: [String] = []
 
         if net < 0.0 {
-            reasons.append("Loses \(NumberParsing.formatMoney(-net, currency: currency)) after fuel and wear")
+            reasons.append("Loses \(NumberParsing.formatMoney(-net, currency: currency)) after fuel")
             return (.bad, reasons)
         }
         if net < thresholds.minNetTotal {

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "publishedAt": "2026-08-20T17:00:00Z",
+  "notes": "Short human-readable changelog, may be multi-line.",
+  "mandatory": false,
+  "android": {
+    "versionCode": 3,
+    "versionName": "1.2.0",
+    "url": "https://github.com/zigazaga4/rideguard/releases/download/v1.2.0/rideguard-sideload.apk",
+    "sha256": "hex string, lowercase",
+    "sizeBytes": 61973326,
+    "minSdk": 26
+  },
+  "ios": {
+    "version": "1.2.0",
+    "build": 3,
+    "manifestUrl": "https://github.com/zigazaga4/rideguard/releases/download/v1.2.0/manifest.plist",
+    "minIosVersion": "16.0"
+  }
+}

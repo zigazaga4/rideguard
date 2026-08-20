@@ -3,18 +3,21 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Offer, Platform } from '../offer';
 import { buildOfferText } from '../offerText';
-import { PLATFORM_THEME } from '../theme';
+import { PLATFORM_THEME, type PlatformTheme } from '../theme';
 import { Countdown } from './Countdown';
 import { PlatformMarker } from './PlatformMarker';
 
 interface Props {
   platform: Platform;
   offer: Offer;
-  /** Ticks once a second. Its own `<Text>` node, and nothing else re-renders. */
+  /** Ticks once a second. Only the countdown's geometry reacts to it. */
   secondsLeft: number;
   /** Starting value, so the timer knows how full to draw itself. */
   totalSeconds: number;
+  topInset: number;
   bottomInset: number;
+  /** Floor for the card block, so the bottom-of-screen geometry always holds. */
+  minBlockHeight: number;
   onAccept: () => void;
   onDecline: () => void;
 }
@@ -22,9 +25,20 @@ interface Props {
 /**
  * One card for both platforms.
  *
- * Bolt and Uber differ in copy, number formatting and colour — never in
- * structure — so this branches on `platform` for those three things and keeps
- * a single layout. Splitting it into two components would let the two drift.
+ * Bolt and Uber differ in copy, colour, chrome and where the two buttons live
+ * — but they carry the same handful of facts in the same top-to-bottom order,
+ * so this branches on `platform` and keeps one component. Splitting it in two
+ * would let the two drift, and the whole point of the harness is that it does
+ * not drift from what the parser expects.
+ *
+ * The two shapes, from the real screenshots:
+ *
+ *   Bolt   dark navy card with a 2px amber outline; decline is a white pill
+ *          floating on the MAP, top-right; accept is a green bar OUTSIDE and
+ *          below the card; the countdown is a short green bar on a divider.
+ *   Uber   white card, thin black border, floating above the bottom edge;
+ *          decline is a small ✕ inside the card; accept is inside the card and
+ *          IS the countdown — black draining over dark grey.
  *
  * ## Why everything here is a `<Text>`
  *
@@ -32,146 +46,272 @@ interface Props {
  * is what shows up in the accessibility tree that RideGuard reads. Draw a fare
  * into an SVG, a Canvas or an Image and the reader goes blind — the harness
  * would then "work" while testing nothing. Every field below is therefore a
- * discrete `<Text>`, one per logical value, so its on-screen bounds mean
- * something to the parser's largest-text-is-the-fare heuristic.
+ * discrete `<Text>`, one per logical value.
+ *
+ * The one deliberate exception is Bolt's fare: `11,62 lei` and its lighter
+ * ` (NET, taxe incluse)` are one visual line, so they are a nested `<Text>`,
+ * which React Native flattens into a SINGLE TextView. The parser has to pull
+ * 11.62 out of the whole string, exactly as it must on the real card.
+ *
+ * Node order here must stay in step with `previewLines()` in offerText.ts —
+ * that function is what `MockHarnessContractTest` is generated from.
  */
 function OfferCardImpl({
   platform,
   offer,
   secondsLeft,
   totalSeconds,
+  topInset,
   bottomInset,
+  minBlockHeight,
   onAccept,
   onDecline,
 }: Props) {
   const t = PLATFORM_THEME[platform];
   const text = buildOfferText(platform, offer);
+  const bolt = platform === 'bolt';
 
-  return (
-    <View style={[styles.card, { backgroundColor: t.card, borderTopColor: t.cardEdge }]}>
-      <View style={[styles.grabber, { backgroundColor: t.cardEdge }]} />
+  const legs = (
+    <View style={styles.legs}>
+      {text.pickupLeg !== null && text.tripLeg !== null && (
+        <View style={[styles.connector, { backgroundColor: t.divider }]} />
+      )}
 
-      {/* Uber's timer spans the full card width just under the handle. */}
-      {platform === 'uber' && (
-        <View style={styles.uberTimerSlot}>
-          <Countdown
-            variant="bar"
-            secondsLeft={secondsLeft}
-            totalSeconds={totalSeconds}
-            color={t.text}
-            trackColor={t.cardEdge}
-            textColor={t.text}
-          />
+      {text.pickupLeg !== null && (
+        <View style={styles.legRow}>
+          <View style={[styles.legDot, { borderColor: t.legStart }]} />
+          <View style={styles.legBody}>
+            <Text style={[styles.legValue, { color: t.text, fontSize: bolt ? 22 : 17 }]}>
+              {text.pickupLeg}
+            </Text>
+            <Text style={[styles.legAddress, { color: t.dim }]} numberOfLines={2}>
+              {text.pickupAddress}
+            </Text>
+          </View>
         </View>
       )}
 
+      {text.tripLeg !== null && (
+        <View style={styles.legRow}>
+          <View
+            style={[
+              styles.legDot,
+              t.tripDotIsSquare && styles.legDotSquare,
+              { borderColor: t.legEnd },
+            ]}
+          />
+          <View style={styles.legBody}>
+            <Text style={[styles.legValue, { color: t.text, fontSize: bolt ? 22 : 17 }]}>
+              {text.tripLeg}
+            </Text>
+            <Text style={[styles.legAddress, { color: t.dim }]} numberOfLines={2}>
+              {text.destinationAddress}
+            </Text>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+
+  const accept = (
+    <Pressable
+      onPress={onAccept}
+      style={({ pressed }) => [
+        styles.accept,
+        {
+          backgroundColor: t.accept,
+          borderRadius: bolt ? 12 : 10,
+          height: bolt ? 60 : 52,
+          opacity: pressed ? 0.85 : 1,
+        },
+      ]}
+    >
+      {/* Uber has no separate timer anywhere on the card — the button is it. */}
+      {!bolt && (
+        <Countdown
+          variant="button"
+          secondsLeft={secondsLeft}
+          totalSeconds={totalSeconds}
+          color={t.countdown}
+          trackColor={t.countdownTrack}
+        />
+      )}
+      <Text style={[styles.acceptText, { color: t.acceptText }]}>{text.accept}</Text>
+    </Pressable>
+  );
+
+  const card = (
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: t.card,
+          borderColor: t.cardBorder,
+          borderWidth: t.cardBorderWidth,
+          borderRadius: t.cardRadius,
+          marginHorizontal: t.cardInset,
+        },
+      ]}
+    >
       {/* Must stay rendered and non-zero-sized. See PlatformMarker. */}
       <PlatformMarker platform={platform} />
 
-      <View style={styles.topRow}>
-        <View style={styles.topLeft}>
-          <Text style={[styles.header, { color: t.dim }]} numberOfLines={1}>
-            {text.header}
-          </Text>
-          <View style={styles.chipRow}>
-            <View style={[styles.chip, { backgroundColor: t.chip }]}>
-              <Text style={[styles.chipText, { color: t.text }]}>{text.product}</Text>
-            </View>
-            {text.surge !== null && (
-              <View style={[styles.chip, { backgroundColor: t.chip }]}>
-                <Text style={[styles.chipText, { color: t.accentText }]}>{text.surge}</Text>
-                <Text style={[styles.chipLabel, { color: t.dim }]}>{text.surgeLabel}</Text>
-              </View>
+      {bolt ? (
+        <>
+          <View style={styles.chipWrap}>
+            <Chip theme={t} tone="product" label={text.product} />
+            <Chip theme={t} tone="good" label={text.payment} />
+            {text.surge !== null && <Chip theme={t} tone="good" label={text.surge} />}
+            {text.stateChips.map((chip) => (
+              <Chip key={chip} theme={t} tone="warn" label={chip} />
+            ))}
+          </View>
+
+          <Text style={[styles.boltFare, { color: t.text }]}>
+            {text.fare}
+            {text.fareSuffix !== null && (
+              <Text style={[styles.boltFareSuffix, { color: t.dim }]}>{text.fareSuffix}</Text>
             )}
-          </View>
-        </View>
+          </Text>
 
-        {/* Countdown. Deliberately its own node with nothing else in it: the
-            HUD must not flicker just because this number changes every second.
-
-            Bolt rings the number; Uber runs a bar across the top of the card
-            (rendered above, outside this row). */}
-        {platform === 'bolt' && (
-          <Countdown
-            variant="ring"
-            secondsLeft={secondsLeft}
-            totalSeconds={totalSeconds}
-            color={t.accentText}
-            trackColor={t.cardEdge}
-            textColor={t.text}
-          />
-        )}
-      </View>
-
-      <View style={styles.fareBlock}>
-        {/* Largest type on the card, on purpose: HeuristicOfferParser.pickFare
-            uses node height as a proxy for font size to find the headline fare. */}
-        <Text style={[styles.fare, { color: t.text }]} numberOfLines={1}>
-          {text.fare}
-        </Text>
-        <Text style={[styles.fareCaption, { color: t.dim }]}>{text.fareCaption}</Text>
-      </View>
-
-      {text.rating !== null && (
-        <View style={styles.ratingRow}>
-          {text.ratingGlyph !== null && (
-            <Text style={[styles.ratingGlyph, { color: t.dim }]}>{text.ratingGlyph}</Text>
+          {text.disclaimer !== null && (
+            <Text style={[styles.disclaimer, { color: t.dim }]}>{text.disclaimer}</Text>
           )}
-          <Text style={[styles.rating, { color: t.dim }]}>{text.rating}</Text>
-        </View>
+
+          <View style={styles.dividerSlot}>
+            <Countdown
+              variant="divider"
+              secondsLeft={secondsLeft}
+              totalSeconds={totalSeconds}
+              color={t.countdown}
+              trackColor={t.divider}
+            />
+          </View>
+
+          {text.passenger !== null && (
+            <View style={[styles.passengerChip, { backgroundColor: t.chip }]}>
+              <Text style={[styles.passengerText, { color: t.text }]}>{text.passenger}</Text>
+            </View>
+          )}
+
+          {legs}
+        </>
+      ) : (
+        <>
+          <View style={styles.uberTopRow}>
+            <View style={[styles.productPill, { backgroundColor: t.productChip }]}>
+              <Text style={[styles.productPillText, { color: t.productChipText }]}>
+                {text.product}
+              </Text>
+            </View>
+            <Pressable
+              onPress={onDecline}
+              style={({ pressed }) => [
+                styles.closeButton,
+                { backgroundColor: t.decline, opacity: pressed ? 0.6 : 1 },
+              ]}
+            >
+              <Text style={[styles.closeText, { color: t.declineText }]}>{text.decline}</Text>
+            </Pressable>
+          </View>
+
+          <Text style={[styles.uberFare, { color: t.text }]} numberOfLines={1}>
+            {text.fare}
+          </Text>
+
+          <View style={styles.chipWrap}>
+            <Chip theme={t} tone="neutral" label={text.payment} />
+            {text.passenger !== null && <Chip theme={t} tone="neutral" label={text.passenger} />}
+            {text.surge !== null && <Chip theme={t} tone="neutral" label={text.surge} />}
+          </View>
+
+          {text.netChip !== null && (
+            <View style={styles.chipWrap}>
+              <Chip theme={t} tone="neutral" label={text.netChip} />
+            </View>
+          )}
+
+          <View style={[styles.hairline, { backgroundColor: t.divider }]} />
+          {legs}
+          <View style={[styles.hairline, { backgroundColor: t.divider }]} />
+
+          {text.longTrip !== null && (
+            <>
+              <View style={styles.chipWrap}>
+                <Chip theme={t} tone="neutral" label={text.longTrip} />
+              </View>
+              <View style={[styles.hairline, { backgroundColor: t.divider }]} />
+            </>
+          )}
+
+          {accept}
+        </>
       )}
+    </View>
+  );
 
-      <View style={styles.legs}>
-        {text.pickupLeg !== null && (
-          <View style={styles.legRow}>
-            <View style={[styles.legDot, { borderColor: t.accentText }]} />
-            <View style={styles.legBody}>
-              <Text style={[styles.legLabel, { color: t.dim }]}>{text.pickupLabel}</Text>
-              <Text style={[styles.legValue, { color: t.text }]}>{text.pickupLeg}</Text>
-              <Text style={[styles.legAddress, { color: t.dim }]} numberOfLines={1}>
-                {text.pickupAddress}
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {text.tripLeg !== null && (
-          <View style={styles.legRow}>
-            <View style={[styles.legSquare, { borderColor: t.dim }]} />
-            <View style={styles.legBody}>
-              <Text style={[styles.legLabel, { color: t.dim }]}>{text.dropoffLabel}</Text>
-              <Text style={[styles.legValue, { color: t.text }]}>{text.tripLeg}</Text>
-              <Text style={[styles.legAddress, { color: t.dim }]} numberOfLines={1}>
-                {text.destinationAddress}
-              </Text>
-            </View>
-          </View>
+  return (
+    <View
+      style={[styles.stack, { paddingTop: topInset + 10, paddingBottom: bottomInset + 12 }]}
+      pointerEvents="box-none"
+    >
+      {/* Everything above the card is map. Bolt's decline lives up here, which
+          is the whole reason the overlay's forbidden zone is at the BOTTOM: on
+          Bolt the two controls sit at opposite ends of the screen. */}
+      <View style={styles.mapSlot} pointerEvents="box-none">
+        {bolt && (
+          <Pressable
+            onPress={onDecline}
+            style={({ pressed }) => [
+              styles.declinePill,
+              { backgroundColor: t.decline, opacity: pressed ? 0.7 : 1 },
+            ]}
+          >
+            <Text style={[styles.declinePillText, { color: t.declineText }]}>{text.decline}</Text>
+          </Pressable>
         )}
       </View>
 
-      {/* Actions pinned to the very bottom, exactly where the real ones sit —
-          this is the region the overlay is forbidden from covering. */}
-      <View style={[styles.actions, { paddingBottom: bottomInset + 12 }]}>
-        <Pressable
-          onPress={onDecline}
-          style={({ pressed }) => [
-            styles.decline,
-            { borderColor: t.declineBorder, opacity: pressed ? 0.6 : 1 },
-          ]}
-        >
-          <Text style={[styles.declineText, { color: t.declineText }]}>{text.decline}</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={onAccept}
-          style={({ pressed }) => [
-            styles.accept,
-            { backgroundColor: t.accept, opacity: pressed ? 0.8 : 1 },
-          ]}
-        >
-          <Text style={[styles.acceptText, { color: t.acceptText }]}>{text.accept}</Text>
-        </Pressable>
+      <View style={[styles.block, { minHeight: minBlockHeight }]}>
+        {card}
+        {bolt && (
+          <View style={{ marginHorizontal: t.cardInset, marginTop: 10 }}>{accept}</View>
+        )}
       </View>
+    </View>
+  );
+}
+
+/** A pill with one `<Text>` in it. Every chip on both cards is one of these. */
+function Chip({
+  theme,
+  tone,
+  label,
+}: {
+  theme: PlatformTheme;
+  tone: 'neutral' | 'good' | 'warn' | 'product';
+  label: string;
+}) {
+  const background =
+    tone === 'good'
+      ? theme.chipGood
+      : tone === 'warn'
+        ? theme.chipWarn
+        : tone === 'product'
+          ? theme.productChip
+          : theme.chip;
+  const color =
+    tone === 'good'
+      ? theme.chipGoodText
+      : tone === 'warn'
+        ? theme.chipWarnText
+        : tone === 'product'
+          ? theme.productChipText
+          : theme.chipText;
+
+  return (
+    <View style={[styles.chip, { backgroundColor: background }]}>
+      <Text style={[styles.chipText, { color }]}>{label}</Text>
     </View>
   );
 }
@@ -179,82 +319,74 @@ function OfferCardImpl({
 export const OfferCard = memo(OfferCardImpl);
 
 const styles = StyleSheet.create({
-  card: {
-    flex: 1,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 20,
-    paddingTop: 8,
-  },
-  uberTimerSlot: { marginBottom: 12, paddingHorizontal: 2 },
-  grabber: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    marginBottom: 10,
-  },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-  },
-  topLeft: { flex: 1, paddingRight: 12 },
-  header: {
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-  },
-  chipRow: { flexDirection: 'row', marginTop: 8, gap: 8 },
-  chip: {
+  stack: { flex: 1 },
+  mapSlot: { flex: 1, alignItems: 'flex-end' },
+  block: { justifyContent: 'flex-end' },
+
+  declinePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    height: 40,
+    paddingHorizontal: 18,
+    borderRadius: 20,
+    marginRight: 14,
   },
+  declinePillText: { fontSize: 15, fontWeight: '700' },
+
+  card: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 16 },
+
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  chip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999 },
   chipText: { fontSize: 14, fontWeight: '700' },
-  chipLabel: { fontSize: 11, fontWeight: '500' },
-  timer: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
+
+  // --- Bolt ---
+  boltFare: { fontSize: 34, lineHeight: 42, fontWeight: '800', marginTop: 12 },
+  boltFareSuffix: { fontSize: 22, lineHeight: 42, fontWeight: '500' },
+  disclaimer: { fontSize: 15, lineHeight: 20, marginTop: 6 },
+  dividerSlot: { marginTop: 16, marginBottom: 14, justifyContent: 'center' },
+  passengerChip: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
   },
-  timerText: { fontSize: 22, lineHeight: 26, fontWeight: '700' },
-  fareBlock: { marginTop: 14 },
-  fare: { fontSize: 46, lineHeight: 56, fontWeight: '800' },
-  fareCaption: { fontSize: 13, marginTop: 2 },
-  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
-  ratingGlyph: { fontSize: 14 },
-  rating: { fontSize: 14, fontWeight: '600' },
-  legs: { marginTop: 18, gap: 14 },
+  passengerText: { fontSize: 15, fontWeight: '600' },
+
+  // --- Uber ---
+  uberTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  productPill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
+  productPillText: { fontSize: 15, fontWeight: '700' },
+  closeButton: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  closeText: { fontSize: 16, fontWeight: '700' },
+  uberFare: { fontSize: 46, lineHeight: 56, fontWeight: '800', marginBottom: 12 },
+  hairline: { height: StyleSheet.hairlineWidth, marginVertical: 14 },
+
+  // --- shared legs ---
+  legs: { gap: 16 },
+  connector: {
+    // Joins the two dots. Absolute so neither leg's height affects the other.
+    position: 'absolute',
+    left: 6,
+    top: 18,
+    bottom: 18,
+    width: 2,
+  },
   legRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  legDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 3, marginTop: 5 },
-  legSquare: { width: 12, height: 12, borderRadius: 2, borderWidth: 3, marginTop: 5 },
+  legDot: { width: 14, height: 14, borderRadius: 7, borderWidth: 3, marginTop: 5 },
+  legDotSquare: { borderRadius: 2 },
   legBody: { flex: 1 },
-  legLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0.5, textTransform: 'uppercase' },
-  legValue: { fontSize: 17, lineHeight: 22, fontWeight: '700', marginTop: 2 },
-  legAddress: { fontSize: 13, marginTop: 2 },
-  actions: { marginTop: 'auto', paddingTop: 12, gap: 10 },
-  decline: {
-    height: 46,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  declineText: { fontSize: 15, fontWeight: '600' },
+  legValue: { lineHeight: 26, fontWeight: '700' },
+  legAddress: { fontSize: 14, lineHeight: 19, marginTop: 2 },
+
   accept: {
-    height: 60,
-    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  acceptText: { fontSize: 19, fontWeight: '800' },
+  acceptText: { fontSize: 18, fontWeight: '800' },
 });

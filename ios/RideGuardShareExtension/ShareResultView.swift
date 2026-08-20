@@ -32,7 +32,7 @@ struct ShareResultView: View {
             .navigationTitle("RideGuard")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done", action: onClose).fontWeight(.semibold)
                 }
             }
@@ -45,7 +45,10 @@ struct ShareResultView: View {
             Text("Reading the offer…")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-            Text("On-device. Nothing is uploaded.")
+            // Said out loud because it is the honest weakness of this route:
+            // recognising a screenshot takes seconds the offer timer does not
+            // always have. The Quick tab is there for when it does not.
+            Text("A few seconds. On-device — nothing is uploaded.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }
@@ -74,12 +77,12 @@ struct ShareResultView: View {
         .controlSize(.large)
     }
 
-    /// The platform was guessed from the text on the screenshot, and the
-    /// commission rate follows from it — so say which one was assumed rather
-    /// than presenting the number as if it were certain.
+    /// The platform was guessed from the text on the screenshot — an image
+    /// carries no provenance — so say which one was assumed rather than
+    /// presenting the number as if it were certain.
     private func platformNote(_ economics: OfferEconomics) -> some View {
         Text("Read as a \(economics.offer.platform.displayName) offer, "
-             + (economics.offer.fareIsNet ? "with the fare already net of commission." : "with commission taken off before costs.")
+             + (economics.offer.fareIsNet ? "treating the fare as what you keep." : "treating the fare as gross.")
              + " Change that in Settings if it is wrong.")
             .font(.caption)
             .foregroundStyle(.secondary)
