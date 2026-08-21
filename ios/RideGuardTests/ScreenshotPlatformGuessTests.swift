@@ -156,15 +156,4 @@ final class ScreenshotPlatformGuessTests: XCTestCase {
         XCTAssertEqual(ScreenshotPlatformGuess.strictGuess(from: "TAXE INCLUSE"), .bolt)
         XCTAssertEqual(ScreenshotPlatformGuess.strictGuess(from: "CURSĂ LUNGĂ"), .uber)
     }
-
-    // MARK: - The fallback variant
-
-    /// The share extension has a sensible default — the driver handed it one
-    /// image on purpose — and the live path does not. That is the only reason
-    /// both functions exist, and the fallback must never override a real read.
-    func testTheFallbackAppliesOnlyWhenThereIsNoIdea() {
-        XCTAssertEqual(ScreenshotPlatformGuess.guess(from: "", fallback: .uber), .uber)
-        XCTAssertEqual(ScreenshotPlatformGuess.guess(from: boltCard, fallback: .uber), .bolt)
-        XCTAssertEqual(ScreenshotPlatformGuess.guess(from: uberCard, fallback: .bolt), .uber)
-    }
 }

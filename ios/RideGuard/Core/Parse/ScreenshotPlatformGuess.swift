@@ -5,11 +5,12 @@ import Foundation
 //  half that produces the text it reasons about lives outside Core, in
 //  `RideGuard/Capture`, because Core must import nothing but Foundation.
 
-/// Works out which driver app a screenshot came from, by reading it.
+/// Works out which driver app a captured frame came from, by reading it.
 ///
 /// On Android the package name is authoritative and this problem does not
-/// exist. Here there is none — an image carries no provenance, and a ReplayKit
-/// frame carries no more than a screenshot does — so the text has to say.
+/// exist. Here there is none — a ReplayKit frame carries no provenance at all
+/// — so the text has to say. This is the only platform-routing decision the
+/// live pipeline makes, which is why it refuses to guess (see `strictGuess`).
 ///
 /// ## Why the markers are what they are
 ///
@@ -89,17 +90,6 @@ public enum ScreenshotPlatformGuess {
         if bolt > uber { return .bolt }
         if uber > bolt { return .uber }
         return nil
-    }
-
-    /// Same reasoning, but never returns "no idea".
-    ///
-    /// The share-extension path has a sensible default and the live path does
-    /// not, which is the only reason both exist. A driver who works one app
-    /// overwhelmingly gets offers from that app, and guessing wrong here only
-    /// changes which per-platform default applies — the verdict card shows it
-    /// and he can correct it in one tap.
-    public static func guess(from text: String, fallback: Platform) -> Platform {
-        strictGuess(from: text) ?? fallback
     }
 
     /// Lowercase with every Romanian diacritic folded to ASCII.

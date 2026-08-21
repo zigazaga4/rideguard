@@ -16,7 +16,7 @@ import RideGuardCore
 /// empty vehicle profile, charge 0 RON/km of fuel, and cheerfully call a
 /// loss-making offer green. Both targets must carry this entitlement.
 public enum Persistence {
-    public static let appGroupIdentifier = "group.com.rideguard.shared"
+    public static let appGroupIdentifier = "group.com.priemschi.rideguard.shared"
 
     /// Falls back to the process-local store so the app still runs in a
     /// simulator build without the entitlement wired up — the extension is the
@@ -247,6 +247,10 @@ public struct HistoryEntry: Codable, Identifiable, Equatable, Sendable {
 
     public enum Source: String, Codable, Sendable {
         case manual = "MANUAL"
+        /// Written by the share extension, which no longer exists. Kept because
+        /// history outlives code: a driver upgrading has rows on disk with this
+        /// value, and removing the case would make the decoder throw on the
+        /// whole file — losing his history to save one line.
         case screenshot = "SCREENSHOT"
 
         public var displayName: String {

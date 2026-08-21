@@ -208,21 +208,4 @@ public final class OfferParserRegistry {
         guard parser.canParse(snapshot) else { return nil }
         return parser.parse(snapshot, fareIsNet: fareIsNet(parser.platform))
     }
-
-    /// Same as `parse`, but with the keyword gate optional.
-    ///
-    /// The gate exists on Android because the accessibility service sees EVERY
-    /// screen and must not react to the earnings tab. On iOS the only input is
-    /// an image the driver deliberately shared, so intent is explicit and a
-    /// missing "Acceptă" — cropped off, or OCR'd badly — should not turn into
-    /// a silent "not an offer". See `docs/ios-platform-limits.md`.
-    public func parse(
-        _ snapshot: ScreenSnapshot,
-        requireOfferKeywords: Bool,
-        fareIsNet: (Platform) -> Bool
-    ) -> RideOffer? {
-        guard let parser = parser(forPackage: snapshot.packageName) else { return nil }
-        if requireOfferKeywords, !parser.canParse(snapshot) { return nil }
-        return parser.parse(snapshot, fareIsNet: fareIsNet(parser.platform))
-    }
 }

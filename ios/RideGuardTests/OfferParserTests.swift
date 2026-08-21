@@ -5,10 +5,10 @@ import XCTest
 /// Kotlin `OfferParserTest` asserts against, block for block and height for
 /// height, so a divergence in the port shows up here immediately.
 ///
-/// Replace these with genuine captures the moment a shift's worth of shared
-/// screenshots exists: `ScreenshotOfferReader` produces exactly this
-/// `[TextBlock]` shape, so real fixtures drop straight in and these become the
-/// regression suite.
+/// Replace these with genuine captures the moment a shift's worth of recorded
+/// frames exists: `BroadcastFrameReader` produces exactly this `[TextBlock]`
+/// shape, so real fixtures drop straight in and these become the regression
+/// suite.
 final class OfferParserTests: XCTestCase {
 
     /// Builds a block stack laid out top-to-bottom, like a real offer card.
@@ -161,39 +161,30 @@ final class OfferParserTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(offer.tripKm), 8.1, accuracy: 1e-9)
     }
 
-    /// A shared screenshot carries no package name, so the platform has to be
-    /// sniffed out of the recognised text.
-    func testPlatformIsGuessedFromScreenshotText() {
+    /// A ReplayKit frame carries no package name, so the platform has to be
+    /// sniffed out of the recognised text — and refused when the text does not
+    /// say. Routing a Bolt card to the Uber parser is worse than not routing it.
+    func testPlatformIsRoutedFromRecognisedText() {
         XCTAssertEqual(
-            ScreenshotPlatformGuess.guess(from: "Comandă nouă\n32,50 lei\nAcceptă", fallback: .uber),
+            ScreenshotPlatformGuess.strictGuess(from: "Comandă nouă\n32,50 lei\nAcceptă"),
             .bolt
         )
         XCTAssertEqual(
-            ScreenshotPlatformGuess.guess(from: "UberX\n€14.20\nAccept trip request", fallback: .bolt),
+            ScreenshotPlatformGuess.strictGuess(from: "UberX\n€14.20\nAccept trip request"),
             .uber
         )
-        // No signal at all: keep the driver's configured platform rather than
-        // inventing one.
-        XCTAssertEqual(
-            ScreenshotPlatformGuess.guess(from: "17,50\n4,2 km", fallback: .bolt),
-            .bolt
-        )
+        // No signal at all: say so, rather than inventing a platform.
+        XCTAssertNil(ScreenshotPlatformGuess.strictGuess(from: "17,50\n4,2 km"))
     }
 
-    /// The keyword gate is right for Android, where the service sees every
-    /// screen. On iOS the driver deliberately shared this image, so a cropped
-    /// screenshot missing the "Acceptă" button must still be parsed.
-    func testScreenshotPathParsesACardWithNoAcceptButton() throws {
+    /// The keyword gate is the only thing standing between the live pipeline
+    /// and a receipt screen, so a card with no "Acceptă" must be refused.
+    func testACardWithNoAcceptButtonIsRefused() {
         let cropped = card(Platform.bolt.packageName, [
             ("32,50 lei", 96),
             ("2,4 km · 5 min", 36),
             ("8,1 km · 18 min", 36),
         ])
-        let registry = OfferParserRegistry()
-
-        XCTAssertNil(registry.parse(cropped) { _ in false }, "the Android gate rejects it")
-
-        let offer = try XCTUnwrap(registry.parse(cropped, requireOfferKeywords: false) { _ in false })
-        XCTAssertEqual(offer.fare, 32.50, accuracy: 1e-9)
+        XCTAssertNil(OfferParserRegistry().parse(cropped) { _ in false })
     }
 }

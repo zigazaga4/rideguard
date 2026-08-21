@@ -99,6 +99,44 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 3b. Drive the real UI on a booted Simulator.
+# ---------------------------------------------------------------------------
+# The one stage here that needs a running device, and the only one that catches
+# the class of bug this app has now shipped twice: a keyboard that cannot be
+# dismissed, and then two Done buttons in the "fix" for it. Both compiled
+# cleanly and passed every unit test above.
+#
+# Skipped rather than failed when no Simulator is available, so this script
+# still does something useful on a machine without one.
+
+step "Drive the UI on a Simulator (keyboard, focus, chrome)"
+sim_udid=$(xcrun simctl list devices available 2>/dev/null \
+           | grep -E '^\s+iPhone' | head -1 \
+           | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/') || true
+
+if [ -z "${sim_udid:-}" ]; then
+    warn "skipped — no iOS Simulator available"
+elif [ ! -d RideGuard.xcodeproj ]; then
+    warn "skipped — no project to test"
+else
+    log=$(mktemp)
+    if xcodebuild \
+        -project RideGuard.xcodeproj \
+        -scheme RideGuard \
+        -sdk iphonesimulator \
+        -destination "id=$sim_udid" \
+        CODE_SIGNING_ALLOWED=NO \
+        test -only-testing:RideGuardUITests > "$log" 2>&1
+    then
+        ok "keyboard can be dismissed, one Done button, nothing hidden under it"
+    else
+        fail "UI tests — failing assertions follow"
+        grep -E "error:.*XCTAssert|Test Case.*failed" "$log" | head -20
+        printf '    full log: %s\n' "$log"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # 4. Things that are silently fatal at runtime and free to check here.
 # ---------------------------------------------------------------------------
 # Each of these fails by doing NOTHING on a device — no crash, no log line —
@@ -113,14 +151,13 @@ else
     mismatched=0
     for f in RideGuard/RideGuard.entitlements \
              RideGuardBroadcast/RideGuardBroadcast.entitlements \
-             RideGuardShareExtension/RideGuardShareExtension.entitlements \
              RideGuard/App/Persistence.swift; do
         if ! grep -q "$group_id" "$f"; then
             fail "$f does not mention $group_id — the extension would write where the app cannot read, and the HUD would just never update"
             mismatched=1
         fi
     done
-    [ "$mismatched" -eq 0 ] && ok "App Group $group_id agrees across both extensions, the app and Persistence"
+    [ "$mismatched" -eq 0 ] && ok "App Group $group_id agrees across the app, the broadcast extension and Persistence"
 fi
 
 # The principal class is resolved by NAME through the Objective-C runtime. Get
@@ -149,8 +186,8 @@ else
 fi
 
 # The picker has to point at the broadcast extension's bundle id, not the app's.
-picker_target=$(grep -o 'com\.rideguard\.app\.broadcast' RideGuard/Overlay/BroadcastPickerButton.swift | head -1)
-broadcast_id=$(grep -o 'com\.rideguard\.app\.broadcast' project.yml | head -1)
+picker_target=$(grep -o '"[A-Za-z0-9.]*\.broadcast"' RideGuard/Overlay/BroadcastPickerButton.swift | head -1 | tr -d '"')
+broadcast_id=$(grep -o 'PRODUCT_BUNDLE_IDENTIFIER: .*\.broadcast' project.yml | head -1 | sed 's/.*: //')
 if [ -n "$picker_target" ] && [ "$picker_target" = "$broadcast_id" ]; then
     ok "broadcast picker points at $picker_target"
 else
@@ -162,8 +199,8 @@ fi
 printf '\n'
 if [ "$failures" -eq 0 ]; then
     printf '%s%sEverything that can be checked without an Apple account passed.%s\n' "$GREEN" "$BOLD" "$OFF"
-    printf 'Next: open RideGuard.xcodeproj, set Team on all five signable targets,\n'
-    printf 'and enable the App Group on the app and BOTH extensions. See README.md.\n'
+    printf 'Next: open RideGuard.xcodeproj, set Team on all four signable targets,\n'
+    printf 'and enable the App Group on the app and the broadcast extension. See README.md.\n'
     exit 0
 fi
 

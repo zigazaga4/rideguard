@@ -134,13 +134,12 @@ final class LiveOfferPipeline {
             capturedAtMs: Int64(Date().timeIntervalSince1970 * 1000)
         )
 
-        // Keyword gate ON, unlike the share extension. There the driver chose
-        // to send us an image and intent is explicit; here we are reading the
-        // whole phone, and the gate plus the money-and-distance check is what
-        // stops a receipt or a banking app from becoming an offer.
+        // The keyword gate is on, and there is no longer any path that turns it
+        // off. We are reading the whole phone: the gate plus the
+        // money-and-distance check is what stops a receipt, an earnings tab or
+        // a banking app from becoming an offer.
         guard let offer = registry.parse(
             routed,
-            requireOfferKeywords: true,
             fareIsNet: { self.settings.fareIsNet(for: $0) }
         ) else { return nil }
 

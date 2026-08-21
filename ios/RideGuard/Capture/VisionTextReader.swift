@@ -1,14 +1,13 @@
 import Foundation
 import RideGuardCore
 
-//  iOS's two ways of seeing a driver app's screen, sharing one Vision setup.
+//  How iOS sees a driver app's screen: one Vision setup, one way in.
 //
-//  There are exactly two: a screenshot the driver shares into us (the share
-//  extension), and a ReplayKit broadcast the driver starts from Control Centre
-//  (`RideGuardBroadcast`). Both end up here, and both must read the same card
-//  the same way — two copies of the Vision configuration is how the live HUD
-//  and the after-the-fact card would quietly start disagreeing about the same
-//  offer. See `docs/ios-platform-limits.md` for why there is no third way.
+//  That way is a ReplayKit broadcast the driver starts from Control Centre
+//  (`RideGuardBroadcast`). There used to be a second — a screenshot shared in
+//  through a share extension — and this file was shaped to serve both. It now
+//  serves the live path only. See `docs/ios-platform-limits.md` for why there
+//  is no third way.
 //
 //  The output is a `[TextBlock]`, which is precisely what the Android
 //  AccessibilityService produces, so from `TokenScanner` downwards the two
@@ -77,13 +76,10 @@ public struct VisionTextReader {
     }
 
     public enum ReadError: Error, LocalizedError {
-        case notAnImage
         case recognitionFailed(Error)
 
         public var errorDescription: String? {
             switch self {
-            case .notAnImage:
-                return "That attachment is not an image RideGuard can read."
             case .recognitionFailed(let underlying):
                 return "Text recognition failed: \(underlying.localizedDescription)"
             }
@@ -148,12 +144,6 @@ public struct VisionTextReader {
         }
     }
 
-    public let options: Options
-
-    public init(options: Options = Options()) {
-        self.options = options
-    }
-
     // MARK: - Request
 
     /// Builds the one text request this app uses.
@@ -205,40 +195,6 @@ public struct VisionTextReader {
         }
     }
 
-    // MARK: - Still images (share extension)
-
-    public func readBlocks(
-        from cgImage: CGImage,
-        orientation: CGImagePropertyOrientation = .up
-    ) throws -> [TextBlock] {
-        let request = Self.makeRequest(options: options)
-        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
-        do {
-            try handler.perform([request])
-        } catch {
-            throw ReadError.recognitionFailed(error)
-        }
-        return Self.blocks(
-            from: request.results,
-            projection: .wholeImage(width: cgImage.width, height: cgImage.height)
-        )
-    }
-
-    /// A snapshot in exactly the shape the Android capture layer produces, so
-    /// the parsers cannot tell the two apart.
-    public func snapshot(
-        from cgImage: CGImage,
-        packageName: String,
-        orientation: CGImagePropertyOrientation = .up,
-        capturedAtMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
-    ) throws -> ScreenSnapshot {
-        ScreenSnapshot(
-            packageName: packageName,
-            blocks: try readBlocks(from: cgImage, orientation: orientation),
-            capturedAtMs: capturedAtMs
-        )
-    }
-
     // MARK: - Live frames (broadcast extension)
 
     /// Recognises text straight out of a pixel buffer.
@@ -285,100 +241,6 @@ public struct VisionTextReader {
         var resolved = preferred.filter { supported.contains($0) }
         if !resolved.contains("en-US"), supported.contains("en-US") { resolved.append("en-US") }
         return resolved.isEmpty ? [supported[0]] : resolved
-    }
-}
-
-extension VisionTextReader {
-    /// A screenshot is ~3 MP and needs no downscaling, but a driver
-    /// photographing a colleague's screen hands us a 12 MP frame, and a share
-    /// extension is killed at around 120 MB of footprint. 4096 px on the long
-    /// edge is far above what Vision needs to read a fare and well inside the
-    /// budget.
-    public static let maxPixelSize = 4096
-
-    /// Decodes image data without touching UIKit, so the same code runs in the
-    /// share extension (tight memory limits, no window) and in the app.
-    ///
-    /// `CGImageSourceCreateThumbnailAtIndex` rather than the full-size decode:
-    /// it caps memory in one step and — with `WithTransform` — bakes in the
-    /// EXIF orientation, so callers can keep passing `.up` and a photo taken
-    /// in landscape still reads right way up.
-    public static func decode(_ data: Data) throws -> CGImage {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
-            throw ReadError.notAnImage
-        }
-        return try decode(source: source)
-    }
-
-    public static func decode(contentsOf url: URL) throws -> CGImage {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-            throw ReadError.notAnImage
-        }
-        return try decode(source: source)
-    }
-
-    private static func decode(source: CGImageSource) throws -> CGImage {
-        guard CGImageSourceGetCount(source) > 0 else { throw ReadError.notAnImage }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-            kCGImageSourceShouldCacheImmediately: true,
-        ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            throw ReadError.notAnImage
-        }
-        return image
-    }
-}
-
-/// Screenshot in, `RideOffer` out. The whole share-extension capture story in
-/// one type. The live path does not use this: it needs the parsed offer and
-/// the economics on separate steps so it can dedupe between them.
-public struct ScreenshotOfferReader {
-    private let reader: VisionTextReader
-    private let registry: OfferParserRegistry
-
-    public init(
-        reader: VisionTextReader = VisionTextReader(),
-        registry: OfferParserRegistry = OfferParserRegistry()
-    ) {
-        self.reader = reader
-        self.registry = registry
-    }
-
-    public struct Result: Sendable {
-        public let platform: Platform
-        public let offer: RideOffer?
-        /// Kept so the UI can show "here is what I actually read" when the
-        /// parse fails. A driver who can see the OCR output can tell whether
-        /// to retake the screenshot or report a parser bug; a bare "couldn't
-        /// read that" teaches them nothing.
-        public let blocks: [TextBlock]
-
-        public var recognizedText: String { blocks.map(\.text).joined(separator: "\n") }
-    }
-
-    public func read(
-        cgImage: CGImage,
-        orientation: CGImagePropertyOrientation = .up,
-        fallbackPlatform: Platform,
-        fareIsNet: (Platform) -> Bool
-    ) throws -> Result {
-        let blocks = try reader.readBlocks(from: cgImage, orientation: orientation)
-        let text = blocks.map(\.text).joined(separator: "\n")
-        let platform = ScreenshotPlatformGuess.guess(from: text, fallback: fallbackPlatform)
-
-        // The synthesised package name is what routes to the right parser; it
-        // is the one place iOS has to invent a value Android reads for free.
-        let snapshot = ScreenSnapshot(
-            packageName: platform.packageName,
-            blocks: blocks,
-            capturedAtMs: Int64(Date().timeIntervalSince1970 * 1000)
-        )
-
-        let offer = registry.parse(snapshot, requireOfferKeywords: false, fareIsNet: fareIsNet)
-        return Result(platform: platform, offer: offer, blocks: blocks)
     }
 }
 

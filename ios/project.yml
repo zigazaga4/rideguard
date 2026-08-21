@@ -15,7 +15,7 @@
 name: RideGuard
 
 options:
-  bundleIdPrefix: com.rideguard
+  bundleIdPrefix: com.priemschi.rideguard
   # iOS 16 is the floor because it reaches iPhone 11, which is the oldest
   # phone this has to run on. That choice has a consequence worth stating:
   # an iPhone 11 has no Dynamic Island, so the Live Activity path cannot be
@@ -48,7 +48,7 @@ settings:
     CODE_SIGN_STYLE: Automatic
     # Filled in by whoever holds the Apple Developer account. Xcode will also
     # write it here the first time you pick a team in the Signing pane.
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: "WW89HSK4NY"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: minimal
 
@@ -64,7 +64,7 @@ targets:
       - path: RideGuard/Core
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.rideguard.core
+        PRODUCT_BUNDLE_IDENTIFIER: com.priemschi.rideguard.core
         PRODUCT_NAME: RideGuardCore
         GENERATE_INFOPLIST_FILE: YES
         DEFINES_MODULE: YES
@@ -93,47 +93,17 @@ targets:
       - target: RideGuardCore
         embed: true
       # XcodeGen embeds app-extension dependencies into PlugIns for us.
-      - target: RideGuardShareExtension
       - target: RideGuardWidgets
       - target: RideGuardBroadcast
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.rideguard.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.priemschi.rideguard.app
         PRODUCT_NAME: RideGuard
         INFOPLIST_FILE: RideGuard/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: RideGuard/RideGuard.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-
-  # Screenshot in, verdict out. The only cross-app path iOS actually allows.
-  RideGuardShareExtension:
-    type: app-extension
-    platform: iOS
-    sources:
-      - path: RideGuardShareExtension
-        excludes:
-          - Info.plist
-      - path: RideGuard/Capture
-      # Two files from the app, deliberately: settings and history live in the
-      # App Group and must be read by the same code the app writes with, and
-      # the verdict card must render identically in both places.
-      - path: RideGuard/App/Persistence.swift
-      - path: RideGuard/App/Quick/VerdictCardView.swift
-      - path: RideGuardLiveActivity
-    dependencies:
-      - target: RideGuardCore
-        embed: false
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.rideguard.app.share
-        PRODUCT_NAME: RideGuardShare
-        INFOPLIST_FILE: RideGuardShareExtension/Info.plist
-        GENERATE_INFOPLIST_FILE: NO
-        # Same group as the app. Without it the extension reads a default
-        # vehicle profile out of its own container and gives confidently wrong
-        # answers — the worst failure mode this app has.
-        CODE_SIGN_ENTITLEMENTS: RideGuardShareExtension/RideGuardShareExtension.entitlements
 
   # The screen reader. This is the target that makes iOS behave like Android.
   #
@@ -164,7 +134,7 @@ targets:
         embed: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.rideguard.app.broadcast
+        PRODUCT_BUNDLE_IDENTIFIER: com.priemschi.rideguard.app.broadcast
         PRODUCT_NAME: RideGuardBroadcast
         INFOPLIST_FILE: RideGuardBroadcast/Info.plist
         GENERATE_INFOPLIST_FILE: NO
@@ -185,7 +155,7 @@ targets:
         embed: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.rideguard.app.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: com.priemschi.rideguard.app.widgets
         PRODUCT_NAME: RideGuardWidgets
         INFOPLIST_FILE: RideGuardWidgets/Info.plist
         GENERATE_INFOPLIST_FILE: NO
@@ -202,8 +172,28 @@ targets:
       - target: RideGuardCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.rideguard.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.priemschi.rideguard.tests
         GENERATE_INFOPLIST_FILE: YES
+
+  # The suite a green build cannot replace.
+  #
+  # Every bug this exists to catch — a keyboard with no way to dismiss it, two
+  # Done buttons where there should be one, a bottom bar hovering on top of the
+  # number pad — compiles perfectly and passes every unit test. Driving the real
+  # UI is the only way to know, and this app has now shipped that class of bug
+  # twice.
+  RideGuardUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: RideGuardUITests
+    dependencies:
+      - target: RideGuard
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.priemschi.rideguard.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: RideGuard
 
 schemes:
   RideGuard:
@@ -216,5 +206,6 @@ schemes:
       config: Debug
       targets:
         - RideGuardTests
+        - RideGuardUITests
     archive:
       config: Release
