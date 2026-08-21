@@ -59,8 +59,8 @@ public struct VerdictActivityAttributes: ActivityAttributes {
 
 @available(iOS 16.1, *)
 public extension VerdictActivityAttributes.ContentState {
-    /// One place that turns economics into Lock Screen text, shared by the app
-    /// and by the share extension so the two cannot drift.
+    /// One place that turns economics into Lock Screen text, so every surface
+    /// that shows this activity says the same thing.
     init(economics: OfferEconomics) {
         self.init(
             verdict: economics.verdict,

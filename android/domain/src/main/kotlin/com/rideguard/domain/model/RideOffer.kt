@@ -84,7 +84,42 @@ enum class Verdict {
     BAD,
 
     /** Could not read enough of the card to say. Never bluff here. */
-    UNKNOWN,
+    UNKNOWN;
+
+    /**
+     * The verdict in words, for a driver glancing at it for one second.
+     *
+     * The HUD used to carry the verdict entirely in colour — a 5 dp coloured
+     * strip and a tinted headline. That asks a driver to remember what amber
+     * means while merging into traffic, and tells a colour-blind driver
+     * (roughly one man in twelve) nothing whatsoever.
+     *
+     * Kept here in `:domain` rather than in `:overlay` so the app module and
+     * the overlay module cannot end up describing the same verdict
+     * differently, and so it matches iOS's `Verdict.statusLabel` word for word.
+     *
+     * [UNKNOWN] deliberately avoids the word profitable in any form. It is not
+     * a middle verdict — it means the card could not be read.
+     */
+    val statusLabel: String
+        get() = when (this) {
+            GOOD -> "Profitable"
+            MARGINAL -> "Semi-profitable"
+            BAD -> "Not profitable"
+            UNKNOWN -> "Can't read it"
+        }
+
+    /**
+     * One plain line saying what the label is based on, shown under it wherever
+     * there is room. The driver should never have to guess what was measured.
+     */
+    val statusDetail: String
+        get() = when (this) {
+            GOOD -> "Clears all your targets"
+            MARGINAL -> "Misses one of your targets"
+            BAD -> "Below what you set as worth it"
+            UNKNOWN -> "Not enough of the offer was readable"
+        }
 }
 
 /**
@@ -136,6 +171,21 @@ data class OfferEconomics(
     /** Short human reasons the verdict came out this way, for the detail sheet. */
     val reasons: List<String> = emptyList(),
     val currency: String,
+
+    /**
+     * Whether [deadheadRatio] exceeded the driver's own `maxDeadheadRatio`.
+     *
+     * Carried rather than recomputed because the HUD does not have the
+     * thresholds and must not invent them. It used to hard-code `ratio > 0.8`,
+     * which happened to equal the default — so the warning badge silently
+     * disagreed with the verdict the moment a driver edited that target in
+     * Settings, showing no badge on the very offer the app had just marked down
+     * for exactly that reason.
+     *
+     * Defaulted so the many test fixtures that build this by hand keep
+     * compiling; [ProfitCalculator] always sets it explicitly.
+     */
+    val deadheadIsExcessive: Boolean = false,
 ) {
     /** True when the ride costs more to serve than it pays. */
     val isLossMaking: Boolean get() = net < 0.0

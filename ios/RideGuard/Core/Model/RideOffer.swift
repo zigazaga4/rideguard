@@ -102,6 +102,39 @@ public enum Verdict: String, Codable, Sendable, CaseIterable {
     case bad = "BAD"
     /// Could not read enough of the card to say. Never bluff here.
     case unknown = "UNKNOWN"
+
+    /// The verdict in words, for a driver glancing at it for one second.
+    ///
+    /// This is the ONLY place these four strings exist. They used to be
+    /// duplicated in the verdict card and again in the Live Activity, which is
+    /// how the app ended up telling the same driver "TAKE IT" on one surface
+    /// and nothing at all on another. Colour alone was never enough: about one
+    /// man in twelve cannot separate the green from the red, and a HUD glanced
+    /// at through a windscreen in daylight is exactly where that bites.
+    ///
+    /// `unknown` deliberately does not use the word profitable in any form. It
+    /// is not a middle verdict — it means the card could not be read, and
+    /// saying anything else would be a bluff.
+    public var statusLabel: String {
+        switch self {
+        case .good: return "Profitable"
+        case .marginal: return "Semi-profitable"
+        case .bad: return "Not profitable"
+        case .unknown: return "Can't read it"
+        }
+    }
+
+    /// One plain line saying what the label is based on. Shown under the label
+    /// wherever there is room for it — the driver should never have to guess
+    /// what the app measured to arrive at the word.
+    public var statusDetail: String {
+        switch self {
+        case .good: return "Clears all your targets"
+        case .marginal: return "Misses one of your targets"
+        case .bad: return "Below what you set as worth it"
+        case .unknown: return "Not enough of the offer was readable"
+        }
+    }
 }
 
 /// The output of the whole pipeline, and exactly what the verdict card renders.

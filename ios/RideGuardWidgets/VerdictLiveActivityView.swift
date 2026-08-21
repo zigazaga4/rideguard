@@ -28,12 +28,22 @@ struct VerdictLiveActivity: Widget {
                     badge(context.state.verdict)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(context.state.netText)
-                        .font(.title3.weight(.bold))
-                        .monospacedDigit()
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text(context.state.netText)
+                            .font(.title3.weight(.bold))
+                            .monospacedDigit()
+                        Text("you keep")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 10) {
+                    // The units already say "per km" and "per hour". What the
+                    // numbers do NOT say on their own is that they are what is
+                    // left after fuel rather than what the platform advertised,
+                    // so that is the word worth spending space on.
+                    HStack(spacing: 6) {
+                        Text("after fuel")
                         Text(context.state.perKmText)
                         if let perHour = context.state.perHourText {
                             Text("·")
@@ -67,15 +77,20 @@ struct VerdictLiveActivity: Widget {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Text(context.state.verdict.statusDetail)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(context.state.netText)
                     .font(.system(size: 30, weight: .bold, design: .rounded))
                     .monospacedDigit()
-                Text("net")
+                // "net" is jargon on a lock screen. Say what the number is.
+                Text("in your pocket, after fuel")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            HStack(spacing: 10) {
+            HStack(spacing: 6) {
+                Text("after fuel")
                 Text(context.state.perKmText)
                 if let perHour = context.state.perHourText {
                     Text("·")
@@ -91,29 +106,24 @@ struct VerdictLiveActivity: Widget {
     }
 
     private func badge(_ verdict: Verdict) -> some View {
-        Label(label(verdict), systemImage: symbol(verdict))
+        Label(verdict.statusLabel, systemImage: symbol(verdict))
             .font(.caption.weight(.heavy))
             .foregroundStyle(tint(verdict))
     }
 
-    // Duplicated from the app's `Verdict` extension rather than shared: the
-    // widget extension has a hard memory budget and pulling in the app's
-    // SwiftUI layer to reach three switch statements is a bad trade.
+    // `tint` and `symbol` stay duplicated from the app's `Verdict` extension:
+    // the widget extension has a hard memory budget and pulling in the app's
+    // SwiftUI layer to reach two switch statements is a bad trade. The WORDS
+    // are a different matter — those now come from `Verdict.statusLabel` in
+    // Core, which this target already links, because a driver seeing one word
+    // on the Dynamic Island and a different one in the app is a real bug and
+    // that is exactly what the duplicated copy caused.
     private func tint(_ verdict: Verdict) -> Color {
         switch verdict {
         case .good: return .green
         case .marginal: return .orange
         case .bad: return .red
         case .unknown: return .gray
-        }
-    }
-
-    private func label(_ verdict: Verdict) -> String {
-        switch verdict {
-        case .good: return "TAKE IT"
-        case .marginal: return "MARGINAL"
-        case .bad: return "SKIP IT"
-        case .unknown: return "UNCLEAR"
         }
     }
 

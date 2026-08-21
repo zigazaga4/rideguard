@@ -1,9 +1,8 @@
 import SwiftUI
 import RideGuardCore
 
-// Shared between the app and the share extension — add this file to BOTH
-// Xcode targets. It is the one screen that matters, and the driver should see
-// the identical thing whether they typed the numbers or shared a screenshot.
+// The one screen that matters: the driver typed some numbers and wants to know
+// whether the ride is worth taking.
 
 extension Verdict {
     /// Colour is the fast channel, but never the only one: the label and the
@@ -16,15 +15,6 @@ extension Verdict {
         case .marginal: return .orange
         case .bad: return .red
         case .unknown: return .gray
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .good: return "TAKE IT"
-        case .marginal: return "MARGINAL"
-        case .bad: return "SKIP IT"
-        case .unknown: return "UNCLEAR"
         }
     }
 
@@ -93,14 +83,24 @@ struct VerdictCardView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: economics.verdict.symbol)
                 .font(.title2)
                 .foregroundStyle(economics.verdict.tint)
-            Text(economics.verdict.label)
-                .font(.headline.weight(.heavy))
-                .foregroundStyle(economics.verdict.tint)
-            Spacer()
+            // The word first, then one line saying what it is based on. A
+            // driver who only ever reads the word still gets the right answer;
+            // one who wants to know why does not have to work it out from the
+            // breakdown below.
+            VStack(alignment: .leading, spacing: 1) {
+                Text(economics.verdict.statusLabel)
+                    .font(.headline.weight(.heavy))
+                    .foregroundStyle(economics.verdict.tint)
+                Text(economics.verdict.statusDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 0) {
                 Text(economics.offer.platform.displayName)
                     .font(.subheadline.weight(.semibold))
@@ -115,22 +115,26 @@ struct VerdictCardView: View {
 
     private var rates: some View {
         HStack(spacing: 0) {
+            // Captions say what the number MEANS, not what it is called.
+            // "net per km" assumes the driver already thinks in the app's
+            // vocabulary; "you keep, per km" tells someone on their first shift
+            // exactly what they are looking at.
             metric(
                 value: NumberParsing.formatRate(economics.netPerKm),
                 unit: "\(currency)/km",
-                caption: "net per km"
+                caption: "you keep, per km"
             )
             Divider().frame(height: 34)
             metric(
                 value: economics.netPerHour.map { NumberParsing.formatRate($0, decimals: 0) } ?? "—",
                 unit: "\(currency)/h",
-                caption: "net per hour"
+                caption: "you keep, per hour"
             )
             Divider().frame(height: 34)
             metric(
                 value: economics.deadheadRatio.map { NumberParsing.formatRate($0) } ?? "—",
                 unit: "×",
-                caption: "pickup vs trip"
+                caption: "empty km vs paid km"
             )
         }
     }
@@ -199,7 +203,7 @@ struct VerdictCardView: View {
 
     private var accessibilitySummary: String {
         var parts = [
-            economics.verdict.label,
+            economics.verdict.statusLabel,
             "net \(NumberParsing.formatMoney(economics.net, currency: currency))",
             "\(NumberParsing.formatRate(economics.netPerKm)) \(currency) per kilometre",
         ]
