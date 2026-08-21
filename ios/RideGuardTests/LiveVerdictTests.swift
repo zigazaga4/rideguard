@@ -119,7 +119,7 @@ final class LiveVerdictTests: XCTestCase {
     /// writes into a container the app cannot read and the HUD simply never
     /// updates, with nothing logged anywhere. Changing it must be deliberate.
     func testTheAppGroupIdentifierIsTheOneTheEntitlementsGrant() {
-        XCTAssertEqual(LiveVerdictChannel.appGroupIdentifier, "group.com.rideguard.shared")
+        XCTAssertEqual(LiveVerdictChannel.appGroupIdentifier, "group.com.priemschi.rideguard.shared")
     }
 
     /// Darwin notification names are a device-wide namespace shared with every

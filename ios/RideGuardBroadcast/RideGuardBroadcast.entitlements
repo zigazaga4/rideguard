@@ -15,7 +15,7 @@
 	     `LiveOfferPipeline.start()` refuses to run at all if it is missing. -->
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.rideguard.shared</string>
+		<string>group.com.priemschi.rideguard.shared</string>
 	</array>
 </dict>
 </plist>

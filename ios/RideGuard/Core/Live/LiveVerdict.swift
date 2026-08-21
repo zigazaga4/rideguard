@@ -99,7 +99,7 @@ public struct LiveVerdict: Codable, Equatable, Sendable {
 public enum LiveVerdictChannel {
 
     /// Must match every `.entitlements` file. See `Persistence.appGroupIdentifier`.
-    public static let appGroupIdentifier = "group.com.rideguard.shared"
+    public static let appGroupIdentifier = "group.com.priemschi.rideguard.shared"
 
     /// Darwin notification names are a global namespace shared with every
     /// process on the device, so this is reverse-DNS to avoid a collision.

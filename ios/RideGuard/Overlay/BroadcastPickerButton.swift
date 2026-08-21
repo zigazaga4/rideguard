@@ -17,7 +17,7 @@ struct BroadcastPickerButton: UIViewRepresentable {
     /// Must match the broadcast extension's `PRODUCT_BUNDLE_IDENTIFIER`. A typo
     /// here is not an error: the sheet simply opens on the full list, which
     /// still works but hands the driver a decision he should not have to make.
-    let preferredExtension = "com.rideguard.app.broadcast"
+    let preferredExtension = "com.priemschi.rideguard.app.broadcast"
 
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let picker = RPSystemBroadcastPickerView(
