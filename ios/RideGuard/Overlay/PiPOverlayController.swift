@@ -398,7 +398,7 @@ extension PiPOverlayController: AVPictureInPictureSampleBufferPlaybackDelegate {
     func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
         skipByInterval skipInterval: CMTime,
-        completionHandler: @escaping () -> Void
+        completion completionHandler: @escaping () -> Void
     ) {
         // Must still call back. AVKit waits on this and stops driving playback
         // if it never arrives.

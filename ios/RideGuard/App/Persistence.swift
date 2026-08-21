@@ -31,7 +31,7 @@ public enum Persistence {
 
     /// Application Support inside the App Group container, so both processes
     /// see one history file. Directory is created on demand.
-    static func supportDirectory() -> URL {
+    public static func supportDirectory() -> URL {
         let fm = FileManager.default
         let base = fm.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)
             ?? fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
