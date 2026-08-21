@@ -81,6 +81,14 @@ targets:
       - path: RideGuard/Overlay
       - path: RideGuardLiveActivity
       - path: RideGuard/Assets.xcassets
+      # Neither is compiled — both are consumed as build settings below. They
+      # are listed only so they appear in the Xcode navigator; every other
+      # target's plist shows up for free because its directory is a source
+      # path, and these two sit at a level no source path covers.
+      - path: RideGuard/Info.plist
+        buildPhase: none
+      - path: RideGuard/RideGuard.entitlements
+        buildPhase: none
     dependencies:
       - target: RideGuardCore
         embed: true

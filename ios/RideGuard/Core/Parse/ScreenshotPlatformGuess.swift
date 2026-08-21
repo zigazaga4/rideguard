@@ -31,11 +31,11 @@ public enum ScreenshotPlatformGuess {
     // folds the haystack's diacritics away before comparing. A marker spelled
     // "cursă lungă" would never match anything.
 
-    /// Present on one platform's card and impossible on the other's. One hit
-    /// decides it outright — counting is only for the ambiguous case.
+    /// Believed present on one platform's card and impossible on the other's.
+    /// The side with more hits wins outright; an equal, non-zero score means
+    /// the belief was wrong about one of these, and the answer is silence.
     private static let boltDecisive = [
         "taxe incluse",     // "11,62 lei (NET, taxe incluse)"
-        "cerere mare",      // surge chip
         "afara razei",      // "În afara razei"
         "respingerea",      // "Respingerea cursei nu va afecta rata de acceptare"
     ]
@@ -48,7 +48,13 @@ public enum ScreenshotPlatformGuess {
 
     /// Weaker signals: real, but capable of appearing incidentally — a Bolt
     /// receipt open inside the Uber app, an address containing the word.
-    private static let boltWeak = ["bolt", "comanda noua", "cursa noua", "mtakso"]
+    ///
+    /// `cerere mare` is here rather than above for a specific reason. It is
+    /// Bolt's surge chip, and it was decisive until it turned out nobody has
+    /// ever captured an Uber surge card in Romanian — so "Uber does not say
+    /// this" was an assumption, not an observation. As a Bolt-decisive marker
+    /// it would have routed every surged Uber offer to the Bolt parser.
+    private static let boltWeak = ["bolt", "comanda noua", "cursa noua", "mtakso", "cerere mare"]
     private static let uberWeak = ["uber", "trip request", "distanta"]
 
     /// Decides only when the text actually says so.
@@ -59,8 +65,24 @@ public enum ScreenshotPlatformGuess {
     public static func strictGuess(from text: String) -> Platform? {
         let haystack = normalise(text)
 
-        if boltDecisive.contains(where: haystack.contains) { return .bolt }
-        if uberDecisive.contains(where: haystack.contains) { return .uber }
+        // Both sides are counted before either wins. The obvious version —
+        // "if any Bolt marker matches, return Bolt" — reads the same on a card
+        // that mentions one platform, and silently prefers Bolt on a card that
+        // trips both. That is how `cerere mare` would have sent every surged
+        // Uber offer to the Bolt parser, and it would never have shown up as a
+        // failure: there would just be a verdict, with the wrong name on it.
+        //
+        // Counting means a marker that turns out not to be exclusive costs a
+        // verdict rather than corrupting one, which is the trade this whole
+        // app makes everywhere else.
+        let boltHits = boltDecisive.count(matchingIn: haystack)
+        let uberHits = uberDecisive.count(matchingIn: haystack)
+        if boltHits > uberHits { return .bolt }
+        if uberHits > boltHits { return .uber }
+        // Equal and non-zero: both cards claim it. Falling through to the weak
+        // markers here would let "uber" appearing once outvote a genuine tie
+        // between strong ones, so this stops instead.
+        if boltHits > 0 { return nil }
 
         let bolt = boltWeak.count(matchingIn: haystack)
         let uber = uberWeak.count(matchingIn: haystack)

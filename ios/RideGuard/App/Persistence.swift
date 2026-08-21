@@ -31,6 +31,11 @@ public enum Persistence {
 
     /// Application Support inside the App Group container, so both processes
     /// see one history file. Directory is created on demand.
+    ///
+    /// `public` because `HistoryStore.init` is public and defaults its `url` to
+    /// this. A default argument on public API is serialised for callers to
+    /// evaluate, so everything it touches must be public too — internal here is
+    /// a compile error, not a style preference.
     public static func supportDirectory() -> URL {
         let fm = FileManager.default
         let base = fm.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)

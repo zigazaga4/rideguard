@@ -107,6 +107,22 @@ public enum LiveVerdictChannel {
 
     private static let fileName = "live-verdict.json"
 
+    // Everything below is Apple-only, and unavoidably so: App Group containers
+    // and Darwin notifications are the two mechanisms this channel is built
+    // out of, and neither exists off Apple platforms.
+    //
+    // The guard is here so the rest of the domain — the parsers, the
+    // calculator, the update rules, and `LiveVerdict` itself — stays buildable
+    // and testable with `swift test` on a machine with no Xcode. That is the
+    // same bargain `UpdateChecker` already makes with `FoundationNetworking`,
+    // and it is worth keeping: it is how the offer maths gets verified without
+    // a Mac in the loop.
+    //
+    // The `#else` stubs are honest about doing nothing. They exist to keep the
+    // API surface identical on both sides so callers still compile — not as a
+    // degraded transport anybody should ever rely on.
+#if canImport(Darwin)
+
     private static var fileURL: URL? {
         FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)?
@@ -195,4 +211,24 @@ public enum LiveVerdictChannel {
     }
 
     nonisolated(unsafe) private static var handler: ((LiveVerdict) -> Void)?
+
+#else
+
+    // Non-Apple builds. There is no App Group and no Darwin notify centre, so
+    // there is no channel — and saying so plainly beats pretending. `publish`
+    // reporting `false` is the same signal it gives on a device where the App
+    // Group is missing, which is a real case the pipeline already handles.
+
+    @discardableResult
+    public static func publish(_ verdict: LiveVerdict) -> Bool { false }
+
+    public static func read() -> LiveVerdict? { nil }
+
+    public static func clear() {}
+
+    public static func observe(_ onChange: @escaping (LiveVerdict) -> Void) {}
+
+    public static func stopObserving() {}
+
+#endif
 }
