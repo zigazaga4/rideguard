@@ -144,6 +144,33 @@ fun SettingsScreen(
             OemWarning(hint) { context.openUrl(Permissions.DONT_KILL_MY_APP_URL) }
         }
 
+        // --------------------------------------------------------- hud size
+        //
+        // Deliberately an explicit mode rather than a gesture that is always
+        // live. The HUD window is FLAG_NOT_TOUCHABLE during a shift so it can
+        // never swallow a tap meant for Accept; this is the one moment it takes
+        // touch, and it ends the moment the driver taps Done on the HUD itself.
+        SectionHeader(
+            "HUD size and position",
+            "Drag it where you want it and pinch to resize. Each app is remembered separately.",
+        )
+        com.rideguard.ui.SecondaryButton(
+            label = "Place the HUD",
+            onClick = { scope.launch { settings.setHudAdjustMode(true) } },
+        )
+        Text(
+            text = if (BuildConfig.USE_ACCESSIBILITY) {
+                "The offer reader has to be running. A sample card appears over whatever is on " +
+                    "screen — drag, pinch, then tap Done on the card itself."
+            } else {
+                "Screen reading has to be running. A sample card appears over whatever is on " +
+                    "screen — drag, pinch, then tap Done on the card itself."
+            },
+            color = RgColors.Secondary,
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+        )
+
         // -------------------------------------------------------------- car
         SectionHeader("Your car", "Changing these re-evaluates live offers immediately.")
         VehicleEditor(vehicle) { updated -> scope.launch { settings.saveVehicle(updated) } }

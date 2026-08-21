@@ -73,6 +73,28 @@ class RideGuardAccessibilityService : AccessibilityService() {
             useAccessibilityOverlayType = true,
         )
 
+        // Persist wherever and however large the driver leaves it, against the
+        // platform whose card was last on screen.
+        overlay?.onLayoutCommitted = { pos, scale ->
+            scope.launch {
+                settings.saveHudLayout(currentPlatform, pos.x, pos.y, scale)
+                // Clear the flag too, or Done ends the mode on screen while the
+                // stored state still says "adjusting" — and the next time the
+                // service starts, the driver gets a sample card he never asked
+                // for, over whatever app he is in.
+                settings.setHudAdjustMode(false)
+            }
+        }
+
+        // The driver taps "Place the HUD" in the app; the app flips this flag;
+        // this service owns the window and acts on it. No new IPC — both sides
+        // already read this store.
+        scope.launch {
+            settings.hudAdjustMode.collect { adjusting ->
+                overlay?.setAdjusting(adjusting)
+            }
+        }
+
         scope.launch {
             recorder.enabled = settings.recordModeEnabled.first()
         }
@@ -161,9 +183,11 @@ class RideGuardAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Bolt and Uber lay out differently, so each has its own stored spot.
-     * Nothing writes these any more now that the HUD cannot be dragged;
-     * `OverlayHost.setPosition` clamps whatever an older build left behind.
+     * Bolt and Uber lay out differently, so each has its own stored spot AND
+     * its own stored size. `OverlayHost` clamps both on the way in, so a
+     * geometry saved on another handset, another orientation, or by an older
+     * build cannot park the HUD over the Accept button or blow it up past the
+     * screen.
      */
     private suspend fun restorePositionFor(platform: Platform) {
         if (platform == currentPlatform && overlay?.position?.isSet == true) return
@@ -171,6 +195,7 @@ class RideGuardAccessibilityService : AccessibilityService() {
         settings.hudPosition(platform).first()?.let { (x, y) ->
             overlay?.setPosition(OverlayPosition(x, y))
         }
+        overlay?.setScale(settings.hudScale(platform).first())
     }
 
     private fun teardown() {

@@ -28,10 +28,17 @@ import com.rideguard.domain.model.OfferEconomics
  *
  * ## The two things that make this work
  *
- * **1. The window takes no input at all.** `FLAG_NOT_FOCUSABLE` keeps it from
- * stealing keyboard focus from the driver app; `FLAG_NOT_TOUCHABLE` keeps it
- * from consuming a single touch. See [buildParams] — this is a safety
- * property, not a styling choice.
+ * **1. The window takes no input while an offer is on screen.**
+ * `FLAG_NOT_FOCUSABLE` keeps it from stealing keyboard focus from the driver
+ * app; `FLAG_NOT_TOUCHABLE` keeps it from consuming a single touch. See
+ * [flagsFor] — this is a safety property, not a styling choice.
+ *
+ * There is exactly one exception, [setAdjusting], and it is worth stating
+ * plainly because it weakens the rule above: while the driver is deliberately
+ * placing and sizing the HUD, from the app, with a sample card rather than a
+ * real offer, the window does accept touch. It is a mode, it is entered only
+ * on purpose, and it ends on a Done button drawn on the card itself. Nothing
+ * else may clear `FLAG_NOT_TOUCHABLE`.
  *
  * **2. The window type is chosen, not assumed.** When we are running inside
  * an AccessibilityService we use `TYPE_ACCESSIBILITY_OVERLAY`, which:
@@ -66,6 +73,20 @@ class OverlayHost(
     /** Where the HUD currently sits, already clamped into the safe band. */
     var position: OverlayPosition = OverlayPosition.UNSET
         private set
+
+    /** How large the driver has made it. 1.0 until they change it. */
+    var scale: Float = OverlayScale.DEFAULT
+        private set
+
+    /**
+     * Called when the driver finishes placing the HUD, with the geometry to
+     * persist. Set by whichever service owns this host.
+     */
+    var onLayoutCommitted: ((OverlayPosition, Float) -> Unit)? = null
+
+    private var adjusting = false
+    private var restoreVisible = false
+    private var restoreEconomics: OfferEconomics? = null
 
     // ---------------------------------------------------------------- public
 
@@ -123,6 +144,80 @@ class OverlayHost(
         }
     }
 
+    /** Clamped like [setPosition], and for the same reason. */
+    fun setScale(next: Float) = onMain {
+        scale = OverlayScale.clamp(next)
+        state.value = state.value.copy(scale = scale)
+        // The window is WRAP_CONTENT, so it re-measures itself around the
+        // rescaled content on the next layout pass. Nothing to resize by hand.
+    }
+
+    /**
+     * Hand the HUD to the driver so they can place and size it.
+     *
+     * **This is the one moment the overlay accepts touch**, and the reason it
+     * is a mode rather than an always-on gesture. A touchable window over a
+     * driver app can eat a tap meant for Accept — see [buildParams]. Confining
+     * that to a deliberate, self-cancelling mode, entered from the app and
+     * never during an offer, is what keeps the safety property intact the rest
+     * of the time.
+     *
+     * A sample verdict is shown while adjusting, because sizing a window
+     * against an empty box tells the driver nothing about whether the numbers
+     * will be readable.
+     */
+    fun setAdjusting(enabled: Boolean, sample: OfferEconomics? = null) = onMain {
+        if (enabled != adjusting) {
+            adjusting = enabled
+
+            if (enabled) {
+                // Remember what was on screen so leaving adjust mode restores
+                // it. Without this the sample verdict stays up for the rest of
+                // the shift, looking exactly like a real offer.
+                restoreVisible = state.value.visible
+                restoreEconomics = state.value.economics
+
+                state.value = state.value.copy(
+                    adjusting = true,
+                    economics = sample ?: OverlaySample.economics,
+                    visible = true,
+                )
+                attachIfNeeded()
+            } else {
+                state.value = state.value.copy(
+                    adjusting = false,
+                    economics = restoreEconomics,
+                    visible = restoreVisible,
+                )
+            }
+
+            // Flags have to be rewritten on the LIVE window, not just on the
+            // next one built: the driver is looking at it right now.
+            params?.let { p ->
+                p.flags = flagsFor(adjusting)
+                if (attached) runCatching { windowManager.updateViewLayout(composeView, p) }
+            }
+
+            if (!enabled) {
+                onLayoutCommitted?.invoke(position, scale)
+                if (!restoreVisible) detach()
+            }
+        }
+    }
+
+    /**
+     * Drag, from the adjust-mode gesture handler. Deltas rather than absolutes
+     * so the maths stays in the window's own coordinate space.
+     *
+     * Guarded on `isSet` because [OverlayPosition.UNSET] is `Int.MIN_VALUE`,
+     * and adding a drag delta to that overflows into a positive coordinate —
+     * the HUD would jump across the screen on the first touch.
+     */
+    private fun nudge(dx: Float, dy: Float) {
+        if (!adjusting || !position.isSet) return
+        setPosition(OverlayPosition(position.x + dx.toInt(), position.y + dy.toInt()))
+    }
+
     fun destroy() = onMain {
         detach()
         owner.destroy()
@@ -161,7 +256,14 @@ class OverlayHost(
                 setViewTreeLifecycleOwner(owner)
                 setViewTreeSavedStateRegistryOwner(owner)
                 setViewTreeViewModelStoreOwner(owner)
-                setContent { OverlayHud(state = state.value) }
+                setContent {
+                    OverlayHud(
+                        state = state.value,
+                        onDrag = ::nudge,
+                        onPinch = { factor -> setScale(scale * factor) },
+                        onDone = { setAdjusting(false) },
+                    )
+                }
             }
 
             owner.create()
@@ -211,14 +313,27 @@ class OverlayHost(
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.WRAP_CONTENT,
         windowType(),
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+        flagsFor(adjusting),
         PixelFormat.TRANSLUCENT,
     ).apply {
         gravity = Gravity.TOP or Gravity.START
         x = at.x
         y = at.y
+    }
+
+    /**
+     * NOT_TOUCHABLE comes off for exactly one thing: the driver placing the HUD
+     * on purpose, from the app, with no offer on screen. It goes straight back
+     * on when they are done. Nothing else may clear it — see the doc above.
+     *
+     * NOT_FOCUSABLE stays on in both modes. The HUD has no text input, and
+     * taking focus would put a cursor and a back-button behaviour on a window
+     * floating over someone else's app.
+     */
+    private fun flagsFor(adjusting: Boolean): Int {
+        val base = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+        return if (adjusting) base else base or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
     }
 
     private fun windowType(): Int = when {
@@ -289,4 +404,9 @@ internal class OverlayViewOwner : SavedStateRegistryOwner, ViewModelStoreOwner {
 data class OverlayUiState(
     val economics: OfferEconomics? = null,
     val visible: Boolean = false,
+    /** The driver's chosen size. Applied by scaling the density, so dp and sp
+     *  scale together and the WRAP_CONTENT window follows. */
+    val scale: Float = OverlayScale.DEFAULT,
+    /** True only while the driver is placing the HUD by hand. */
+    val adjusting: Boolean = false,
 )

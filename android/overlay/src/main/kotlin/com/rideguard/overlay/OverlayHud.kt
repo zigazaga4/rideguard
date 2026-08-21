@@ -1,6 +1,8 @@
 package com.rideguard.overlay
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,26 +17,38 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rideguard.domain.model.OfferEconomics
 import com.rideguard.domain.model.Verdict
 import com.rideguard.domain.parse.NumberParsing
+import kotlin.math.roundToInt
 
 /**
  * Design brief, and it is a narrow one: the driver has roughly ten to fifteen
  * seconds to accept, he is holding a phone in a car, and he will look at this
  * for about two seconds.
  *
- * So: one headline number, one rate beneath it, one quiet context line, and a
- * warning badge only when there is something to warn about. Adding "just one
- * more useful field" is exactly how a HUD like this becomes unreadable.
+ * So: the verdict in one word, one headline number, one rate beneath it, one
+ * quiet context line, and a warning badge only when there is something to warn
+ * about. Each number carries a short caption saying what it is, because a bare
+ * figure is only obvious to whoever wrote the app. Adding "just one more useful
+ * field" beyond that is exactly how a HUD like this becomes unreadable.
+ *
+ * The verdict word is not decoration. It used to be carried entirely by colour,
+ * which asks the driver to remember what amber means while merging into traffic
+ * and tells a colour-blind driver nothing at all.
  *
  * Nothing here is interactive, and nothing here should become interactive. See
  * [OverlayHost] for why that is a safety property and not a preference.
@@ -59,16 +73,66 @@ private object HudColors {
 }
 
 @Composable
-fun OverlayHud(state: OverlayUiState) {
+fun OverlayHud(
+    state: OverlayUiState,
+    onDrag: (Float, Float) -> Unit = { _, _ -> },
+    onPinch: (Float) -> Unit = {},
+    onDone: () -> Unit = {},
+) {
     val economics = state.economics
     if (!state.visible || economics == null) return
 
+    // Size is applied by scaling the DENSITY rather than by scaling the drawn
+    // result. A `graphicsLayer` scale would leave the window measuring its
+    // original size and clip the HUD; changing density makes every dp and sp
+    // grow together and lets the WRAP_CONTENT window re-measure around it, so
+    // the driver gets a genuinely bigger window rather than a magnified one.
+    val base = LocalDensity.current
+    CompositionLocalProvider(
+        LocalDensity provides Density(
+            density = base.density * state.scale,
+            fontScale = base.fontScale,
+        ),
+    ) {
+        HudCard(state, economics, onDrag, onPinch, onDone)
+    }
+}
+
+@Composable
+private fun HudCard(
+    state: OverlayUiState,
+    economics: OfferEconomics,
+    onDrag: (Float, Float) -> Unit,
+    onPinch: (Float) -> Unit,
+    onDone: () -> Unit,
+) {
     val accent = HudColors.forVerdict(economics.verdict)
 
     Box(
         modifier = Modifier
-            .widthIn(min = 168.dp, max = 260.dp)
-            .clip(RoundedCornerShape(14.dp))
+            // Gestures exist ONLY while adjusting. Outside that the window is
+            // FLAG_NOT_TOUCHABLE and never sees a touch to begin with, so this
+            // is belt and braces — but it means a bug that leaves the flag off
+            // still cannot turn the HUD into something that swallows a tap.
+            .then(
+                if (state.adjusting) {
+                    Modifier.pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            if (pan != Offset.Zero) onDrag(pan.x, pan.y)
+                            if (zoom != 1f) onPinch(zoom)
+                        }
+                    }
+                } else {
+                    Modifier
+                },
+            )
+            // Wider than the old 168–260 dp, because the card now carries the
+            // verdict word and a caption under each number. The window itself
+            // is WRAP_CONTENT (see OverlayHost.buildParams), so it simply grows
+            // to fit; the only real ceiling is the forbidden bottom band that
+            // keeps the HUD off the Accept button, and this stays far inside it.
+            .widthIn(min = 210.dp, max = 320.dp)
+            .clip(RoundedCornerShape(16.dp))
             .background(HudColors.Surface)
             // Confidence below the threshold means we could not read the whole
             // card. Dimming is an honest signal — far better than rendering a
@@ -82,21 +146,105 @@ fun OverlayHud(state: OverlayUiState) {
             // Verdict strip — readable from the corner of the eye.
             Box(
                 Modifier
-                    .width(5.dp)
+                    .width(6.dp)
                     .fillMaxHeight()
                     .background(accent),
             )
 
             Column(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(1.dp),
             ) {
+                StatusRow(economics, accent)
+                Spacer(Modifier.height(6.dp))
                 EarningsPerKmRow(economics, accent)
+                Caption("what the ride pays per km")
+                Spacer(Modifier.height(6.dp))
                 NetPerKmRow(economics)
+                Caption("what you keep after fuel")
+                Spacer(Modifier.height(6.dp))
                 ContextRow(economics)
+
+                if (state.adjusting) {
+                    Spacer(Modifier.height(10.dp))
+                    AdjustBar(state.scale, onDone)
+                }
             }
         }
     }
+}
+
+/**
+ * Shown only while placing the HUD. Says what to do and gives one way out.
+ *
+ * The way out matters more than it looks: adjust mode is the only state in
+ * which this window accepts touch, so leaving it must not depend on the driver
+ * finding the app again. Done is right here, on the thing he is dragging.
+ */
+@Composable
+private fun AdjustBar(scale: Float, onDone: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = "Drag to move  ·  pinch to resize  ·  ${(scale * 100).roundToInt()}%",
+            color = HudColors.Secondary,
+            fontSize = 10.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        Box(
+            Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(HudColors.Good)
+                .clickable(onClick = onDone)
+                .padding(horizontal = 16.dp, vertical = 7.dp),
+        ) {
+            Text(
+                text = "Done",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+/**
+ * THE VERDICT, IN WORDS. The line read first, and the only one that survives
+ * being glanced at for half a second.
+ *
+ * Drawn in the accent colour so it reinforces the strip rather than competing
+ * with it, and uppercased for the same reason the strip exists at all.
+ */
+@Composable
+private fun StatusRow(e: OfferEconomics, accent: Color) {
+    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Text(
+            text = e.verdict.statusLabel.uppercase(),
+            color = accent,
+            fontSize = 19.sp,
+            lineHeight = 22.sp,
+            fontWeight = FontWeight.Black,
+        )
+        Text(
+            text = e.verdict.statusDetail,
+            color = HudColors.Secondary,
+            fontSize = 10.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+/** The small print under a number, saying what the number actually is. */
+@Composable
+private fun Caption(text: String) {
+    Text(
+        text = text,
+        color = HudColors.Secondary,
+        fontSize = 10.sp,
+        lineHeight = 13.sp,
+        fontWeight = FontWeight.Medium,
+    )
 }
 
 /**
@@ -117,15 +265,15 @@ private fun EarningsPerKmRow(e: OfferEconomics, accent: Color) {
         Text(
             text = NumberParsing.formatFixed(e.earningsPerKm),
             color = accent,
-            fontSize = 30.sp,
-            lineHeight = 34.sp,
+            fontSize = 34.sp,
+            lineHeight = 38.sp,
             fontWeight = FontWeight.Black,
         )
         Spacer(Modifier.width(3.dp))
         Text(
             text = "/km",
             color = HudColors.Secondary,
-            fontSize = 13.sp,
+            fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(bottom = 3.dp),
         )
@@ -134,8 +282,12 @@ private fun EarningsPerKmRow(e: OfferEconomics, accent: Color) {
 
         // Only shown when there is genuinely something to flag. A badge that
         // is always on screen stops being a warning and becomes decoration.
+        //
+        // Driven by the calculator's own comparison, not by a threshold copied
+        // here: this used to read `ratio > 0.8`, which silently stopped
+        // agreeing with the verdict as soon as a driver changed that target.
         val ratio = e.deadheadRatio
-        if (ratio != null && ratio > 0.8) {
+        if (ratio != null && e.deadheadIsExcessive) {
             WarningBadge("↩ ${NumberParsing.formatRate(ratio, 1)}×")
         }
     }
@@ -160,15 +312,17 @@ private fun NetPerKmRow(e: OfferEconomics) {
         Text(
             text = NumberParsing.formatFixed(e.netPerKm),
             color = if (negative) HudColors.Bad else HudColors.Primary,
-            fontSize = 17.sp,
-            lineHeight = 20.sp,
+            fontSize = 19.sp,
+            lineHeight = 22.sp,
             fontWeight = FontWeight.Bold,
         )
         Spacer(Modifier.width(3.dp))
+        // Just the unit here — the caption underneath carries the meaning, and
+        // repeating "after fuel" in both places wastes a line the HUD needs.
         Text(
-            text = "/km after fuel",
+            text = "/km",
             color = HudColors.Secondary,
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(bottom = 1.dp),
         )
@@ -179,13 +333,16 @@ private fun NetPerKmRow(e: OfferEconomics) {
 @Composable
 private fun ContextRow(e: OfferEconomics) {
     val perHour = e.netPerHour
+    // "in total" and "driving" so the two figures cannot be mistaken for the
+    // per-km pair above them — the whole point of this line is that it is the
+    // WHOLE ride, not a rate.
     val text = buildString {
         append(NumberParsing.formatAuto(e.net))
         append(' ')
         append(e.currency)
-        append("  ·  ")
+        append(" in total  ·  ")
         append(NumberParsing.formatRate(e.totalKm, 1))
-        append(" km")
+        append(" km driving")
         if (perHour != null) {
             append("  ·  ")
             append(NumberParsing.formatAuto(perHour))
@@ -196,6 +353,7 @@ private fun ContextRow(e: OfferEconomics) {
         text = text,
         color = HudColors.Secondary,
         fontSize = 11.sp,
+        lineHeight = 14.sp,
         fontWeight = FontWeight.Medium,
         modifier = Modifier.padding(top = 2.dp),
     )

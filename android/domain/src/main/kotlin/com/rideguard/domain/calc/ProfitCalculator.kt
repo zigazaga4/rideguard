@@ -83,6 +83,11 @@ class ProfitCalculator(
             verdict = verdict,
             reasons = reasons,
             currency = offer.currency,
+            // The same comparison `judge` makes, recorded so the HUD can show
+            // the warning badge on exactly the offers the verdict marked down
+            // for it, whatever the driver has set the target to.
+            deadheadIsExcessive = deadheadRatio != null &&
+                deadheadRatio > thresholds.maxDeadheadRatio,
         )
     }
 

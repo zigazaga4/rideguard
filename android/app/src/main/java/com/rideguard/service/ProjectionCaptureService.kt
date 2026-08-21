@@ -19,14 +19,17 @@ import com.rideguard.MainActivity
 import com.rideguard.R
 import com.rideguard.capture.ProjectionOcrSource
 import com.rideguard.data.SettingsRepository
+import com.rideguard.domain.model.Platform
 import com.rideguard.domain.pipeline.OfferEvent
 import com.rideguard.domain.pipeline.OfferPipeline
 import com.rideguard.overlay.OverlayHost
+import com.rideguard.overlay.OverlayPosition
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 
@@ -63,6 +66,10 @@ class ProjectionCaptureService : Service() {
      */
     @Volatile
     private var foregroundPackage: String = ""
+
+    /** Which app's card was last on screen. Selects which saved HUD geometry
+     *  applies, and which one a fresh adjustment is written back to. */
+    private var currentPlatform: Platform = Platform.UNKNOWN
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -136,6 +143,33 @@ class ProjectionCaptureService : Service() {
         val settings = SettingsRepository(this)
         val pipeline = OfferPipeline()
 
+        // Persist wherever and however large the driver leaves it. Written
+        // against the platform whose card was last on screen, because Bolt and
+        // Uber lay out differently and one saved geometry suits neither.
+        overlay?.onLayoutCommitted = { pos, scale ->
+            scope.launch {
+                settings.saveHudLayout(currentPlatform, pos.x, pos.y, scale)
+                // Clear the flag too, or Done ends the mode on screen while the
+                // stored state still says "adjusting" — and the next time the
+                // service starts, the driver gets a sample card he never asked
+                // for, over whatever app he is in.
+                settings.setHudAdjustMode(false)
+            }
+        }
+
+        scope.launch {
+            restoreLayoutFor(settings, currentPlatform)
+        }
+
+        // The driver taps "Place the HUD" in the app; the app flips this flag;
+        // this service owns the window and acts on it. No new IPC — both sides
+        // already read this store.
+        scope.launch {
+            settings.hudAdjustMode.collect { adjusting ->
+                overlay?.setAdjusting(adjusting)
+            }
+        }
+
         ocr.start()
         scope.launch {
             pipeline.run(ocr.snapshots, settings.settings)
@@ -143,11 +177,29 @@ class ProjectionCaptureService : Service() {
                 .catch { t -> Log.e(TAG, "Pipeline failed", t) }
                 .collect { event ->
                     when (event) {
-                        is OfferEvent.Show -> overlay?.show(event.economics)
+                        is OfferEvent.Show -> {
+                            if (event.economics.offer.platform != currentPlatform) {
+                                currentPlatform = event.economics.offer.platform
+                                restoreLayoutFor(settings, currentPlatform)
+                            }
+                            overlay?.show(event.economics)
+                        }
                         OfferEvent.Hide -> overlay?.hide()
                     }
                 }
         }
+    }
+
+    /**
+     * Clamped on the way in by [OverlayHost], not trusted as given: a geometry
+     * saved on another handset or before a display-size change can name a spot
+     * or a size that no longer fits.
+     */
+    private suspend fun restoreLayoutFor(settings: SettingsRepository, platform: Platform) {
+        settings.hudPosition(platform).first()?.let { (x, y) ->
+            overlay?.setPosition(OverlayPosition(x, y))
+        }
+        overlay?.setScale(settings.hudScale(platform).first())
     }
 
     private fun startForegroundCompat() {

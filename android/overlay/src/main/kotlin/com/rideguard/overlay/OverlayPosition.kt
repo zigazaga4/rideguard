@@ -82,3 +82,25 @@ object OverlayBounds {
         y = (screenH * 0.10f).roundToInt(),
     )
 }
+
+/**
+ * How far the driver may scale the HUD, and why not further.
+ *
+ * Below [MIN] the type stops being legible at a glance in a moving car, which
+ * is the only thing this HUD is for. Above [MAX] a HUD placed low enough can
+ * reach into the forbidden bottom band whatever [OverlayBounds] does, because
+ * that band is clamped against the view height and the view height is what
+ * scaling changes.
+ *
+ * Mirrored as plain constants in `:data`'s `SettingsRepository`; the two
+ * modules do not depend on each other, and both clamp independently so a stale
+ * saved value cannot get through either door.
+ */
+object OverlayScale {
+    const val MIN = 0.7f
+    const val MAX = 2.0f
+    const val DEFAULT = 1.0f
+
+    fun clamp(value: Float): Float =
+        if (value.isNaN()) DEFAULT else value.coerceIn(MIN, MAX)
+}
