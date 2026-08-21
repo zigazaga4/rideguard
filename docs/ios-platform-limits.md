@@ -145,14 +145,25 @@ flows, useless for a live HUD.
    shared domain computes the verdict, and a custom PiP window floats it over
    Bolt. This is the Android feature, at the cost of one tap per shift and a
    lit recording indicator.
-4. **Share Extension + Vision OCR.** Screenshot an offer, share it to RideGuard,
-   get the same verdict from the same parser. Needs no broadcast and no PiP, so
-   it is the fallback when the live path is not armed — and the fastest way to
-   test a parser change.
-5. **Manual quick-entry.** Type the fare and the two legs. Nothing to mis-read,
-   so it is also the reference when a parsed number looks wrong.
-6. **Settings and history.** Thresholds, gross-vs-net per platform, and a log of
+4. **Manual quick-entry.** Type the fare and the two legs. Nothing to mis-read,
+   so it is also the reference when a parsed number looks wrong, and the
+   fallback whenever the live path is not armed.
+5. **Settings and history.** Thresholds, gross-vs-net per platform, and a log of
    evaluated offers with what the driver actually did about each.
+
+> **Removed: Share Extension + Vision OCR.** A fifth path used to exist —
+> screenshot an offer, share it into RideGuard, get the same verdict. It was
+> deleted deliberately. It duplicated a capture path that now works live, it
+> was slower than the offer timer it was meant to beat, and maintaining a
+> second entry point into the parser had a real cost in code and in the
+> onboarding copy a driver had to read. What it *did* buy is set out under
+> "Practical consequence" below, and that trade is the honest cost of the
+> decision.
+>
+> Two artefacts survive it on purpose: `HistoryEntry.Source.screenshot`, so a
+> driver's existing history still decodes, and the names `VisionTextReader` and
+> `ScreenshotPlatformGuess` — both of which are load-bearing for the LIVE path
+> despite what they are called.
 
 ---
 
@@ -171,9 +182,17 @@ screen**. What differs is what it costs to get there.
 
 So iOS parity is real but conditional, and the condition worth watching is the
 last two rows. The PiP overlay is the piece resting on an unintended use of an
-Apple API; if it ever stops working, the share-extension path degrades
-gracefully and keeps the app useful, which is why that path is maintained
-rather than deleted.
+Apple API.
+
+**The risk that buys.** The share-extension path used to be the answer to "what
+if PiP stops working" — a slower but independent way to get a verdict, resting
+on nothing unusual. Deleting it means that if Apple closes the PiP route in
+some future iOS release, the fallback is manual quick-entry: still useful,
+still correct, but no longer reading anything off the screen. That is a real
+reduction in resilience, taken knowingly in exchange for one capture path
+instead of two. If PiP ever does break, the cheapest recovery is to restore the
+extension from git history — `RideGuardShareExtension/` and the deleted members
+of `VisionTextReader` are all one `git revert` away.
 
 ---
 
@@ -182,7 +201,7 @@ rather than deleted.
 Two halves, in different states:
 
 - **`RideGuardCore` is compiled and tested.** Parsers, token scanner, profit
-  calculator, platform routing and update rules: **85 tests, all passing**, run
+  calculator, platform routing and update rules: **89 tests, all passing**, run
   on Linux with the Swift 6.1 toolchain. Foundation-only is what makes that
   possible, which is why the rule is worth defending.
 - **Everything importing SwiftUI, AVKit, Vision, ReplayKit or ActivityKit has

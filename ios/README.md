@@ -5,7 +5,7 @@ are in very different states.
 
 **The domain is compiled and tested.** `RideGuardCore` — the parsers, the token
 scanner, the profit calculator, the platform routing and the update rules —
-builds clean and passes **85 tests**, run on Linux with the Swift 6.1 toolchain.
+builds clean and passes **89 tests**, run on Linux with the Swift 6.1 toolchain.
 That is the half where a mistake shows up as a wrong number rather than a build
 error, so it is the half worth proving first, and it is proven.
 
@@ -36,7 +36,7 @@ problem.
 | | Needed? | Why |
 |---|---|---|
 | **A Mac** | **Yes, mandatory** | Xcode only runs on macOS. There is no cross-compiler, no cloud shortcut worth the trouble, and no way to produce a signed `.ipa` without it. |
-| **An iPhone** | **Yes, for real testing** | The Simulator can run the app and the unit tests, but it cannot test the share extension against a real screenshot taken in the Bolt app, cannot test a Live Activity properly, and cannot test OTA install at all. |
+| **An iPhone** | **Yes, for real testing** | The Simulator can run the app and the unit tests, but it has no ReplayKit broadcast and no Picture-in-Picture, so it cannot test the live HUD at all. It also cannot test a Live Activity properly, or OTA install. |
 | **Apple Developer Program — €99/yr** | Yes, for anything lasting | A *free* Apple ID can sideload to your own phone, but the build **expires after 7 days** and must be reinstalled from Xcode, and it cannot do over-the-air updates at all. |
 
 So: **a Mac is non-negotiable, an iPhone is needed for anything real.** The Mac
@@ -81,21 +81,18 @@ explain.
 
 Then, once, in Xcode:
 
-1. Set **Signing & Capabilities → Team** on all **five** signable targets:
-   `RideGuard`, `RideGuardBroadcast`, `RideGuardShareExtension`,
-   `RideGuardWidgets` and `RideGuardCore`. Or set `DEVELOPMENT_TEAM` once in
-   `project.yml` and regenerate, which is less error-prone.
+1. Set **Signing & Capabilities → Team** on all **four** signable targets:
+   `RideGuard`, `RideGuardBroadcast`, `RideGuardWidgets` and `RideGuardCore`.
+   Or set `DEVELOPMENT_TEAM` once in `project.yml` and regenerate, which is
+   less error-prone.
 2. Create the **App Group** `group.com.rideguard.shared` and enable it on the
-   app *and both extensions*. Miss it anywhere and the failure is silent:
-   - on **RideGuardBroadcast** it is fatal to the whole live HUD. That group is
-     the only channel out of the broadcast extension, so without it the
-     extension reads the screen perfectly and has no way to say what it saw.
-     `LiveOfferPipeline.start()` refuses to run rather than pretend.
-   - on **RideGuardShareExtension** it is worse than fatal — the extension
-     falls back to a default vehicle out of its own container and answers with
-     a confidently wrong number, which is the worst failure this app has.
-3. Bundle IDs are `com.rideguard.app`, `.app.broadcast`, `.app.share` and
-   `.app.widgets`. Change the prefix if that namespace is not yours — and if
+   app *and on RideGuardBroadcast*. Miss it and the failure is silent — and on
+   the broadcast extension it is fatal to the whole live HUD. That group is the
+   only channel out of the extension, so without it the extension reads the
+   screen perfectly and has no way to say what it saw.
+   `LiveOfferPipeline.start()` refuses to run rather than pretend.
+3. Bundle IDs are `com.rideguard.app`, `.app.broadcast` and `.app.widgets`.
+   Change the prefix if that namespace is not yours — and if
    you do, change `preferredExtension` in
    [`BroadcastPickerButton.swift`](RideGuard/Overlay/BroadcastPickerButton.swift)
    to match, or the picker will list every screen recorder on the phone except
@@ -158,9 +155,8 @@ nothing logged anywhere.
 | Verdict floats over the offer card | yes, an accessibility overlay | yes, via ReplayKit + PiP — with the caveats below |
 | Driver has to arm it | no, always on | **yes, one tap per shift** to start the broadcast |
 | Visible while it runs | nothing | the system **recording indicator** stays lit |
-| Screenshot → share → verdict | — | yes, and it needs no broadcast |
 | Type the numbers → verdict | yes | yes |
-| Same parser and same economics | yes | yes, same 85 tests |
+| Same parser and same economics | yes | yes, same 89 tests |
 | Updates itself from GitHub | yes, installs the APK | yes, via `itms-services://` (needs the paid account) |
 
 Be clear-eyed about the cost. The broadcast must be started by the driver and

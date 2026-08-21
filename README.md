@@ -32,7 +32,7 @@ anything goes wrong, and none of that is visible under time pressure.
 co/
 ├── android/     Kotlin. The real app. Reads the screen, draws the HUD.
 ├── mock/        Expo. Fake Bolt/Uber offer screens for testing without real rides.
-├── ios/         Swift. Domain parity + manual entry + Vision OCR share extension.
+├── ios/         Swift. Domain parity + a live HUD via ReplayKit and Picture-in-Picture.
 ├── updates/     latest.json — the manifest every installed app polls.
 ├── release.sh   Bump, build, sign, publish, point the manifest at it.
 └── docs/
@@ -232,11 +232,18 @@ from real screenshots. If you take this to another market, verify it again
 against a payout statement — this is the easiest thing in the app to be
 confidently wrong about.
 
-**iOS cannot do the main thing.** No system-wide overlay, no cross-app screen
-reading — hard sandbox limits, no entitlement, no workaround. So the iOS build
-is a different product wearing the same maths: manual quick entry, plus a Share
-Extension that OCRs a screenshot with Vision. It is also **unbuilt** — there is
-no Xcode on this machine, so nothing in `ios/` has been compiled. See
+**iOS gets there by a different road, and it costs the driver two taps.** There
+is still no accessibility-style screen reading and no `TYPE_APPLICATION_OVERLAY`
+on iOS. What there is: a **ReplayKit broadcast extension** that receives frames
+of the whole screen, and a **Picture-in-Picture window** — the only kind iOS
+lets float over another app — to draw the verdict in. That combination gives a
+genuine live HUD over Bolt and Uber.
+
+The catch is that neither half can be started programmatically. The driver must
+start the broadcast and start the HUD himself, every shift, and again after any
+phone call that interrupts it. The app's onboarding is built around teaching
+exactly that, because a driver who does not know it will see nothing and assume
+the app is broken. Manual quick entry remains as the always-works fallback. See
 `docs/ios-platform-limits.md`.
 
 **Third-party tools are against both platforms' driver terms.** A read-only
