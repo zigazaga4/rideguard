@@ -72,7 +72,7 @@ struct HistoryView: View {
                 .foregroundStyle(.tertiary)
             Text("No offers yet")
                 .font(.headline)
-            Text("Check an offer on the Quick tab, or share a screenshot of an offer into RideGuard, and it lands here.")
+            Text("Check an offer on the Quick tab, or start the live HUD and let it read one, and it lands here.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

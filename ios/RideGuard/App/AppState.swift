@@ -32,8 +32,20 @@ final class AppState: ObservableObject {
     init(settingsStore: SettingsStore = SettingsStore(), historyStore: HistoryStore = HistoryStore()) {
         self.settingsStore = settingsStore
         self.historyStore = historyStore
-        self.settings = settingsStore.load()
-        self.history = historyStore.load()
+
+        // UI tests need to start at first run every time, or they assert
+        // against whatever the previous run happened to leave on disk. Gated on
+        // a launch argument, which nothing but the test runner can pass — and
+        // which the App Store build therefore never sees set.
+        if ProcessInfo.processInfo.arguments.contains("-RideGuardUITestResetState") {
+            let fresh = AppSettings()
+            settingsStore.save(fresh)
+            self.settings = fresh
+            self.history = []
+        } else {
+            self.settings = settingsStore.load()
+            self.history = historyStore.load()
+        }
     }
 
     // MARK: - Evaluation

@@ -15,11 +15,14 @@ struct RootView: View {
     var body: some View {
         Group {
             if state.settings.hasCompletedOnboarding {
+                // Live HUD first: it is the feature, and it is the one that
+                // needs starting at the beginning of every shift. Quick sits
+                // second as the always-works fallback.
                 TabView {
-                    QuickEntryView()
-                        .tabItem { Label("Quick", systemImage: "bolt.fill") }
                     LiveOverlayView()
                         .tabItem { Label("Live HUD", systemImage: "pip.fill") }
+                    QuickEntryView()
+                        .tabItem { Label("Quick", systemImage: "bolt.fill") }
                     HistoryView()
                         .tabItem { Label("History", systemImage: "list.bullet") }
                     SettingsView()
@@ -32,10 +35,9 @@ struct RootView: View {
         }
         .animation(.default, value: state.settings.hasCompletedOnboarding)
         .onChange(of: scenePhase) { phase in
-            // The share extension is a separate process writing the same
-            // history file while this one is suspended. Without this reload,
-            // an offer the driver analysed from the share sheet would never
-            // appear in the list.
+            // Extensions are separate processes sharing this app's container.
+            // Re-reading on activate is what stops the in-memory copy drifting
+            // from what is actually on disk after a spell in the background.
             if phase == .active { state.reloadFromDisk() }
         }
     }

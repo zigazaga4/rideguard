@@ -75,6 +75,11 @@ struct QuickEntryView: View {
                 .padding(.bottom, 32)
             }
             .background(Color(.systemGroupedBackground))
+            // A second way out of the keyboard, independent of the Done button:
+            // flick the list and it goes. Being unable to dismiss a keyboard is
+            // the kind of trap that makes an app feel broken, so it is worth
+            // having two escapes that fail independently.
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Quick check")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -128,6 +133,8 @@ struct QuickEntryView: View {
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
+        .contentShape(Rectangle())
+        .onTapGesture { focused = .fare }
     }
 
     private var legsCard: some View {
@@ -186,6 +193,12 @@ struct QuickEntryView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color(.tertiarySystemFill)))
+        // The pill LOOKS like the control, but only the glyph run inside it was
+        // tappable — and with trailing alignment and an empty value that run
+        // sits at the far right, so most taps on a visibly-empty box did
+        // nothing at all.
+        .contentShape(Rectangle())
+        .onTapGesture { focused = field }
     }
 
     // MARK: - Reusing the last entry

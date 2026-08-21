@@ -33,7 +33,7 @@ struct SettingsView: View {
                         ForEach(Platform.selectable, id: \.self) { Text($0.displayName).tag($0) }
                     }
                 } footer: {
-                    Text("Used as the starting point on the Quick tab, and as the tie-break when a shared screenshot does not say which app it came from.")
+                    Text("The starting point on the Quick tab. The live HUD does not use it — it reads which app the offer came from, and says nothing when it cannot tell.")
                 }
 
                 lockScreenSection
@@ -41,6 +41,8 @@ struct SettingsView: View {
                 updatesSection
             }
             .navigationTitle("Settings")
+            .keyboardDoneBar()
+            .scrollDismissesKeyboard(.interactively)
         }
     }
 
@@ -158,22 +160,22 @@ struct SettingsView: View {
 
     // MARK: - Capabilities
 
-    /// Better the driver reads this here than files a one-star review asking
-    /// where the floating bubble is. Every word of it is a hard iOS limit, not
-    /// a roadmap item — see `docs/ios-platform-limits.md`.
+    /// What the app can and cannot do, so the driver reads it here rather than
+    /// working it out mid-shift. Every limit named is a hard iOS one, not a
+    /// roadmap item — see `docs/ios-platform-limits.md`.
     private var capabilitiesSection: some View {
         Section {
-            Label("Type the numbers on the Quick tab — fastest, always works", systemImage: "keyboard")
-            Label("Or screenshot the offer and share it here — reading it takes a few seconds", systemImage: "square.and.arrow.up")
+            Label("Live HUD — start it on the Live HUD tab, then drive", systemImage: "pip.fill")
+            Label("Type the numbers on the Quick tab — no setup, always works", systemImage: "keyboard")
             Label("Everything runs on your phone. Nothing is uploaded.", systemImage: "lock")
             if !Persistence.isAppGroupAvailable {
-                Label("App Group unavailable — the share extension cannot see your settings in this build.", systemImage: "exclamationmark.triangle")
+                Label("App Group unavailable — the screen reader cannot see your settings in this build, so its verdicts would use defaults.", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
             }
         } header: {
             Text("How to use it")
         } footer: {
-            Text("iOS does not let any app read another app's screen or draw over it. The Android version watches the Bolt and Uber driver apps directly; on iPhone that is not something Apple permits, so RideGuard works from a screenshot you share or numbers you type. Nothing else can legitimately be built here.")
+            Text("The live HUD reads the offer card from a screen broadcast you start, and shows the verdict in a Picture-in-Picture window — the only kind iOS lets float over another app. Both have to be started by hand each shift, because iOS gives that decision to you and no app can take it. When the HUD is not running, the Quick tab always is.")
         }
     }
 }

@@ -7,6 +7,16 @@ import RideGuardCore
 struct VehicleSetupView: View {
     @Binding var vehicle: VehicleProfile
 
+    /// Optional intro rendered as the Form's first section.
+    ///
+    /// Onboarding needs a heading above these fields. Wrapping this view in the
+    /// onboarding scaffold's `ScrollView` to get one put a `Form` (itself a
+    /// `List`) inside a `ScrollView` inside a paged `TabView` — three nested
+    /// scroll containers, which is why keyboard avoidance never lifted a field
+    /// here and the page gesture fought every drag. Passing the heading IN
+    /// keeps exactly one scroll view on screen.
+    var header: AnyView?
+
     /// Markets where Bolt and Uber both run and this app makes sense. Free
     /// text is still allowed underneath — a three-letter code is a three-letter
     /// code, and hard-coding a closed list would just lock somebody out.
@@ -14,8 +24,15 @@ struct VehicleSetupView: View {
 
     var body: some View {
         Form {
+            if let header {
+                Section {
+                    header.listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                }
+                .listRowBackground(Color.clear)
+            }
+
             Section("Car") {
-                TextField("My car", text: $vehicle.label)
+                BufferedTextField("My car", text: $vehicle.label)
                 Picker("Fuel", selection: $vehicle.fuelType) {
                     ForEach(FuelType.allCases, id: \.self) { Text($0.displayName).tag($0) }
                 }
@@ -42,7 +59,7 @@ struct VehicleSetupView: View {
             }
 
             Section {
-                TextField("RON", text: $vehicle.currency)
+                BufferedTextField("RON", text: $vehicle.currency)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -80,6 +97,10 @@ struct VehicleSetupView: View {
                 Text("Charged on every kilometre the car moves, including driving to the passenger, which no platform pays you for.\n\nFuel only. Tyres, servicing and depreciation are real, but a number invented at a petrol station would sit in every verdict looking just as solid as the two figures you actually know.")
             }
         }
+        // Exactly one Done button for the whole screen, plus flick-to-dismiss
+        // as an independent second way out.
+        .keyboardDoneBar()
+        .scrollDismissesKeyboard(.interactively)
     }
 }
 
@@ -109,13 +130,31 @@ struct DecimalTextField: View {
                 .font(.body.monospacedDigit())
                 .focused($focused)
                 .frame(maxWidth: 110)
+                // Stable handle for the UI tests, which are the only thing that
+                // catches a keyboard this app cannot dismiss.
+                .accessibilityIdentifier("decimal.\(title)")
             if let unit {
                 Text(unit)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
         }
-        .onAppear { text = NumberParsing.formatRate(value) }
+        // NB: the Done button is NOT here. A keyboard toolbar declared on a
+        // field contributes to the whole screen's accessory view, so one per
+        // field renders one Done button per field. It lives once per screen —
+        // see `View.keyboardDoneBar()`.
+        //
+        // The field is 110 pt at the trailing edge of a full-width row, so most
+        // of what looks tappable was not. Now the whole row focuses it.
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
+        // Only ever re-seed from the outside while the driver is not typing.
+        // Inside a Form these rows get recycled, and the old unconditional
+        // `onAppear` could wipe a half-typed number.
+        .onAppear { if !focused { text = Self.display(value) } }
+        .onChange(of: value) { new in
+            if !focused { text = Self.display(new) }
+        }
         .onChange(of: text) { new in
             if let parsed = NumberParsing.parseDecimal(new) { value = parsed }
             // An empty field is mid-edit, not zero: leaving `value` alone means
@@ -124,8 +163,70 @@ struct DecimalTextField: View {
         }
         .onChange(of: focused) { isFocused in
             // Re-normalise on blur so "7," or "007" settles to something sane.
-            if !isFocused { text = NumberParsing.formatRate(value) }
+            if !isFocused { text = Self.display(value) }
         }
+    }
+
+    /// Seeds the field with the separator this driver's keyboard actually
+    /// produces.
+    ///
+    /// `formatRate` always emits a dot. On a Romanian phone the decimal pad
+    /// emits a comma, so seeding "6.5" and typing one more digit gave "6.5,3" —
+    /// which `parseDecimal` reads, by its documented "last separator wins" rule,
+    /// as **65.3**. A ten-times-wrong fuel price silently poisons every verdict
+    /// the app gives, which makes this the most expensive typo in the app.
+    private static func display(_ value: Double) -> String {
+        let formatted = NumberParsing.formatRate(value)
+        guard let separator = Locale.current.decimalSeparator, separator != "." else {
+            return formatted
+        }
+        return formatted.replacingOccurrences(of: ".", with: separator)
+    }
+}
+
+/// A plain text field that does not write to the model on every keystroke.
+///
+/// `vehicle.label` and `vehicle.currency` were bound straight through to
+/// `AppState.settings`, whose `didSet` saves to disk and republishes. Every
+/// single character therefore triggered a file write and a rebuild of the whole
+/// Form — and because the currency is interpolated into four sibling rows'
+/// unit strings, those rebuilt too. That is the classic SwiftUI recipe for
+/// dropped keystrokes and a caret that jumps, and it is what "some inputs do
+/// not receive input" was.
+///
+/// The buffer is local; the model is written on blur, when the driver has
+/// stopped typing.
+struct BufferedTextField: View {
+    private let placeholder: String
+    @Binding private var text: String
+
+    @State private var buffer: String = ""
+    @FocusState private var focused: Bool
+
+    init(_ placeholder: String, text: Binding<String>) {
+        self.placeholder = placeholder
+        self._text = text
+    }
+
+    var body: some View {
+        TextField(placeholder, text: $buffer)
+            .focused($focused)
+            .onAppear { if !focused { buffer = text } }
+            .onChange(of: text) { new in
+                // Kept in step when something else changes it — the currency
+                // quick-pick buttons sitting directly under this field do.
+                if !focused, new != buffer { buffer = new }
+            }
+            .onChange(of: focused) { isFocused in
+                if !isFocused { commit() }
+            }
+            .onSubmit(commit)
+    }
+
+    private func commit() {
+        let trimmed = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != text { text = trimmed }
+        buffer = trimmed
     }
 }
 
