@@ -9,10 +9,24 @@ import RideGuardCore
 /// thread, so that drawing a frame is nothing but glyph layout and fills. It is
 /// also what makes "did anything actually change?" a cheap `==`.
 struct HudSnapshot: Equatable {
+    /// The verdict as a word — "Profitable", "Not profitable". Colour alone was
+    /// the whole signal here until now, which asked a driver to remember what
+    /// amber meant while merging into traffic, and told a colour-blind driver
+    /// nothing at all.
+    var status: String
+    /// One line under the word saying what it is based on.
+    var statusDetail: String
+    /// Which driver app this offer came from. Already known; never used to be
+    /// drawn, so two apps' offers looked identical on the HUD.
+    var platform: String
     /// Big, bold, verdict-coloured. What the ride pays per kilometre driven.
     var headline: String
+    /// What the headline number actually means, in words.
+    var headlineCaption: String
     /// The same figure after fuel — what he keeps.
     var netPerKm: String
+    /// What the net number actually means, in words.
+    var netCaption: String
     /// Quiet context: distance, hourly.
     var context: String
     /// Only ever set when there is genuinely something to warn about.
@@ -32,8 +46,13 @@ struct HudSnapshot: Equatable {
     /// is driving. So the window stays and says nothing — which is the same
     /// promise, kept differently.
     static let waiting = HudSnapshot(
+        status: "",
+        statusDetail: "",
+        platform: "",
         headline: "",
+        headlineCaption: "",
         netPerKm: "",
+        netCaption: "",
         context: "",
         badge: nil,
         accent: HudColors.unknown,
@@ -43,8 +62,13 @@ struct HudSnapshot: Equatable {
     )
 
     init(
+        status: String,
+        statusDetail: String,
+        platform: String,
         headline: String,
+        headlineCaption: String,
         netPerKm: String,
+        netCaption: String,
         context: String,
         badge: String?,
         accent: UIColor,
@@ -52,8 +76,13 @@ struct HudSnapshot: Equatable {
         dimmed: Bool,
         isWaiting: Bool
     ) {
+        self.status = status
+        self.statusDetail = statusDetail
+        self.platform = platform
         self.headline = headline
+        self.headlineCaption = headlineCaption
         self.netPerKm = netPerKm
+        self.netCaption = netCaption
         self.context = context
         self.badge = badge
         self.accent = accent
@@ -75,14 +104,26 @@ struct HudSnapshot: Equatable {
             badge = "↩ \(NumberParsing.formatRate(ratio, decimals: 1))×"
         }
 
+        // The channel carries the verdict as a raw string. Round-tripping it
+        // through the enum means the HUD, the verdict card and the Dynamic
+        // Island cannot say different words about the same ride, and an
+        // unrecognised value degrades to "can't read it" rather than to a
+        // confident-looking blank.
+        let decoded = Verdict(rawValue: verdict.verdict.uppercased()) ?? .unknown
+
         self.init(
+            status: decoded.statusLabel,
+            statusDetail: decoded.statusDetail,
+            platform: verdict.platform.uppercased(),
             headline: NumberParsing.formatFixed(verdict.earningsPerKm),
+            headlineCaption: "what the ride pays per km",
             netPerKm: NumberParsing.formatFixed(verdict.netPerKm),
+            netCaption: "what you keep after fuel",
             context: context,
             badge: badge,
             accent: HudColors.forVerdict(verdict.verdict),
             netIsNegative: verdict.netPerKm < 0,
-            dimmed: verdict.verdict.uppercased() == "UNKNOWN",
+            dimmed: decoded == .unknown,
             isWaiting: false
         )
     }
@@ -97,15 +138,32 @@ struct HudSnapshot: Equatable {
 /// exactly how this app gets killed for memory instead of failing loudly.
 final class HudRenderer {
 
-    /// 480 × 270.
+    /// 640 × 480 — 4:3.
     ///
-    /// 16:9 because a PiP window is a video window and the system is best
-    /// behaved with an ordinary video aspect ratio; unusual ones get letterboxed
-    /// or clamped and the layout silently loses its edges. 480 px wide is close
-    /// to 1:1 with the pixels the window actually gets — the largest PiP window
-    /// on an iPhone 11 is roughly 230 pt, so about 460 px — which means the text
-    /// is never upscaled, and a full redraw still costs well under a millisecond.
-    static let renderSize = CGSize(width: 480, height: 270)
+    /// This was 480 × 270 (16:9) and the change is worth explaining, because it
+    /// is the one number here that behaves counter-intuitively.
+    ///
+    /// **An app cannot set the size of its PiP window.** The system picks it and
+    /// scales our buffer to fit (`videoGravity = .resizeAspect`), so raising the
+    /// pixel count alone changes resolution and nothing else — the window does
+    /// not grow. What the app *does* control is the aspect ratio, and the window
+    /// is sized primarily by its width. A taller ratio therefore buys real
+    /// on-screen height at the same width, and height is what "fit more in"
+    /// actually needs: at 16:9 the old three rows already used 206 of 234
+    /// usable px, so a fourth row did not fit at any resolution.
+    ///
+    /// 4:3 rather than something taller still, because the original constraint
+    /// has not gone away: a PiP window is a video window, and the system is
+    /// best behaved with an ordinary video ratio. 4:3 is the most ordinary
+    /// non-widescreen ratio there is. Anything more unusual risks being
+    /// letterboxed or clamped, which loses the layout's edges silently.
+    ///
+    /// 640 px wide keeps text at roughly 1:1 with the pixels the window gets
+    /// (the largest PiP window on an iPhone 11 is ~230 pt ≈ 460 px), so glyphs
+    /// are never upscaled and a full redraw still costs well under a
+    /// millisecond. Reverting is a one-line change back to `480 × 270`; the
+    /// rest of the layout is derived from this constant.
+    static let renderSize = CGSize(width: 640, height: 480)
 
     private let size = HudRenderer.renderSize
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
@@ -114,14 +172,16 @@ final class HudRenderer {
     private var formatDescription: CMVideoFormatDescription?
     private var lastPresentationTime: CMTime = .invalid
 
-    // Layout, in render-space pixels. Proportions are Android's — 30sp / 17sp /
-    // 11sp — scaled up to this canvas, so the hierarchy the driver has learned
-    // survives the port.
-    private let stripWidth: CGFloat = 10
-    private let inset = UIEdgeInsets(top: 18, left: 24, bottom: 18, right: 22)
-    private let headlineSize: CGFloat = 84
-    private let netSize: CGFloat = 48
-    private let contextSize: CGFloat = 30
+    // Layout, in render-space pixels. The hierarchy is Android's — one dominant
+    // figure, one supporting figure, quiet context — with a verdict word above
+    // it and a caption under each number saying what it means.
+    private let stripWidth: CGFloat = 12
+    private let inset = UIEdgeInsets(top: 20, left: 26, bottom: 20, right: 24)
+    private let statusSize: CGFloat = 44
+    private let headlineSize: CGFloat = 92
+    private let netSize: CGFloat = 52
+    private let captionSize: CGFloat = 25
+    private let contextSize: CGFloat = 28
 
     // MARK: - Frames
 
@@ -323,58 +383,123 @@ final class HudRenderer {
             color: snapshot.netIsNegative ? HudColors.bad : HudColors.primary,
             monospacedDigits: true
         )
-        let netLabel = makeLine(
-            "/km after fuel", size: netSize * 0.58, weight: .medium, color: HudColors.secondary
+        let netSuffix = makeLine(
+            "/km", size: netSize * 0.58, weight: .medium, color: HudColors.secondary
         )
         let contextLine = makeLine(
             snapshot.context, size: contextSize, weight: .medium,
             color: HudColors.secondary, maxWidth: content.width
         )
 
+        // The verdict, in words. Drawn in the accent colour so it reinforces the
+        // strip rather than competing with it, and uppercased for the same
+        // reason the strip is 12 px wide: this is the line read first.
+        let status = makeLine(
+            snapshot.status.uppercased(), size: statusSize, weight: .heavy,
+            color: snapshot.accent, maxWidth: content.width * 0.72
+        )
+        let platform = snapshot.platform.isEmpty ? nil : makeLine(
+            snapshot.platform, size: captionSize, weight: .bold,
+            color: HudColors.secondary
+        )
+        let statusDetail = makeLine(
+            snapshot.statusDetail, size: captionSize, weight: .regular,
+            color: HudColors.secondary, maxWidth: content.width
+        )
+        let headlineCaption = makeLine(
+            snapshot.headlineCaption, size: captionSize, weight: .medium,
+            color: HudColors.secondary, maxWidth: content.width
+        )
+        let netCaption = makeLine(
+            snapshot.netCaption, size: captionSize, weight: .medium,
+            color: HudColors.secondary, maxWidth: content.width
+        )
+
         // Rows are stacked from measured metrics rather than guessed line
         // heights, then centred as a block: whatever the system font does with
         // ascenders at these sizes, nothing clips and nothing drifts.
-        let gapUnderHeadline: CGFloat = 4
-        let gapUnderNet: CGFloat = 8
-        let headlineRow = headline.height
-        let netRow = max(net.height, netLabel.height)
-        let contextRow = contextLine.height
-        let total = headlineRow + gapUnderHeadline + netRow + gapUnderNet + contextRow
+        let gapUnderStatus: CGFloat = 2
+        let gapUnderDetail: CGFloat = 14
+        let gapUnderCaption: CGFloat = 12
+        let gapUnderNumber: CGFloat = 2
+
+        let statusRow = max(status.height, platform?.height ?? 0)
+        let netRow = max(net.height, netSuffix.height)
+        let total = statusRow + gapUnderStatus
+            + statusDetail.height + gapUnderDetail
+            + headline.height + gapUnderNumber
+            + headlineCaption.height + gapUnderCaption
+            + netRow + gapUnderNumber
+            + netCaption.height + gapUnderCaption
+            + contextLine.height
 
         var y = content.minY + max(0, (content.height - total) / 2)
 
+        status.draw(in: ctx, x: content.minX, baseline: y + status.ascent)
+        if let platform {
+            // Right-aligned on the status row: it identifies the offer without
+            // taking a row of its own.
+            platform.draw(
+                in: ctx,
+                x: content.maxX - platform.width,
+                baseline: y + status.ascent
+            )
+        }
+
+        y += statusRow + gapUnderStatus
+        statusDetail.draw(in: ctx, x: content.minX, baseline: y + statusDetail.ascent)
+
+        y += statusDetail.height + gapUnderDetail
         let headlineBaseline = y + headline.ascent
         headline.draw(in: ctx, x: content.minX, baseline: headlineBaseline)
         suffix.draw(in: ctx, x: content.minX + headline.width + headlineGap, baseline: headlineBaseline)
         if let badge {
-            drawBadge(badge, in: ctx, rightEdge: content.maxX, centerY: y + headlineRow / 2)
+            drawBadge(badge, in: ctx, rightEdge: content.maxX, centerY: y + headline.height / 2)
         }
 
-        y += headlineRow + gapUnderHeadline
-        let netBaseline = y + max(net.ascent, netLabel.ascent)
+        y += headline.height + gapUnderNumber
+        headlineCaption.draw(in: ctx, x: content.minX, baseline: y + headlineCaption.ascent)
+
+        y += headlineCaption.height + gapUnderCaption
+        let netBaseline = y + max(net.ascent, netSuffix.ascent)
         var x = content.minX
         arrow.draw(in: ctx, x: x, baseline: netBaseline)
         x += arrow.width + 6
         net.draw(in: ctx, x: x, baseline: netBaseline)
         x += net.width + 7
-        netLabel.draw(in: ctx, x: x, baseline: netBaseline)
+        netSuffix.draw(in: ctx, x: x, baseline: netBaseline)
 
-        y += netRow + gapUnderNet
+        y += netRow + gapUnderNumber
+        netCaption.draw(in: ctx, x: content.minX, baseline: y + netCaption.ascent)
+
+        y += netCaption.height + gapUnderCaption
         contextLine.draw(in: ctx, x: content.minX, baseline: y + contextLine.ascent)
     }
 
     private func drawWaiting(in ctx: CGContext, content: CGRect) {
-        let title = makeLine("RideGuard", size: 36, weight: .semibold, color: HudColors.secondary)
+        let title = makeLine("RideGuard", size: 42, weight: .semibold, color: HudColors.secondary)
         let body = makeLine(
-            "watching for offers", size: 28, weight: .regular,
-            color: HudColors.secondary.withAlphaComponent(0.65)
+            "Watching for offers", size: captionSize + 3, weight: .regular,
+            color: HudColors.secondary.withAlphaComponent(0.7),
+            maxWidth: content.width
         )
-        let gap: CGFloat = 6
-        let total = title.height + gap + body.height
-        let top = content.minY + max(0, (content.height - total) / 2)
+        // Says plainly that the empty window is working, not broken. A driver
+        // who sees a blank HUD mid-shift otherwise has no way to tell whether
+        // the broadcast died, and stopping to check costs him the next offer.
+        let hint = makeLine(
+            "The next one will show up here", size: captionSize - 1, weight: .regular,
+            color: HudColors.secondary.withAlphaComponent(0.5),
+            maxWidth: content.width
+        )
+        let gap: CGFloat = 8
+        let total = title.height + gap + body.height + 4 + hint.height
+        var y = content.minY + max(0, (content.height - total) / 2)
 
-        title.draw(in: ctx, x: content.minX, baseline: top + title.ascent)
-        body.draw(in: ctx, x: content.minX, baseline: top + title.height + gap + body.ascent)
+        title.draw(in: ctx, x: content.minX, baseline: y + title.ascent)
+        y += title.height + gap
+        body.draw(in: ctx, x: content.minX, baseline: y + body.ascent)
+        y += body.height + 4
+        hint.draw(in: ctx, x: content.minX, baseline: y + hint.ascent)
     }
 
     private func drawBadge(_ text: HudLine, in ctx: CGContext, rightEdge: CGFloat, centerY: CGFloat) {
