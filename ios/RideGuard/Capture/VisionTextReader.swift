@@ -1,12 +1,16 @@
 import Foundation
 import RideGuardCore
 
-//  iOS's honest answer to Android's screen reading.
+//  iOS's two ways of seeing a driver app's screen, sharing one Vision setup.
 //
-//  iOS cannot read another app's window and cannot draw over one — see
-//  `docs/ios-platform-limits.md` for the API-by-API reasoning. What it CAN do
-//  is accept a screenshot the driver shares into us and run on-device OCR over
-//  it. The output is a `[TextBlock]`, which is precisely what the Android
+//  There are exactly two: a screenshot the driver shares into us (the share
+//  extension), and a ReplayKit broadcast the driver starts from Control Centre
+//  (`RideGuardBroadcast`). Both end up here, and both must read the same card
+//  the same way — two copies of the Vision configuration is how the live HUD
+//  and the after-the-fact card would quietly start disagreeing about the same
+//  offer. See `docs/ios-platform-limits.md` for why there is no third way.
+//
+//  The output is a `[TextBlock]`, which is precisely what the Android
 //  AccessibilityService produces, so from `TokenScanner` downwards the two
 //  apps run the same code on the same shape of data.
 //
@@ -18,12 +22,17 @@ import RideGuardCore
 
 import Vision
 import CoreGraphics
+import CoreVideo
+// For `CGImagePropertyOrientation`, which lives in ImageIO and only reaches
+// here by re-export otherwise. Whether that re-export happens depends on the
+// SDK, and losing it is a confusing "cannot find type in scope".
+import ImageIO
 
-/// On-device text recognition over a screenshot.
+/// On-device text recognition over a screen image.
 ///
 /// Nothing leaves the phone: `VNRecognizeTextRequest` runs locally, and this
 /// app has no networking code at all. That is a feature worth keeping — a
-/// driver's offer screenshots contain passenger pickup addresses.
+/// driver's offer screen contains passenger pickup addresses.
 public struct VisionTextReader {
 
     public struct Options: Sendable {
@@ -38,18 +47,27 @@ public struct VisionTextReader {
         /// are numbers and place names, not prose, so correction has nothing
         /// to contribute and a lot to break.
         public var usesLanguageCorrection: Bool
-        /// `.accurate` — a screenshot is a still image with a generous time
-        /// budget, and `.fast` visibly drops decimal separators.
+        /// `.accurate`. `.fast` visibly drops decimal separators, and a fare
+        /// read as `1750` instead of `17,50` is a hundredfold error presented
+        /// with total confidence. It is the most expensive setting in this file
+        /// and the least negotiable.
         public var recognitionLevel: VNRequestTextRecognitionLevel
-        /// Fraction of image height. 0 means Vision's default (1/32), which
-        /// picks up the small print under the fare.
+        /// Fraction of IMAGE height, not of screen height — which is why it has
+        /// to be set per call site rather than left alone.
+        ///
+        /// Vision's own default is 1/32. On a full-height screenshot that is
+        /// ~56 px, which throws away the leg lines (`2,4 km · 5 min`) and the
+        /// net disclaimer and keeps only the headline fare — a parse with a
+        /// fare and no distance, which `HeuristicOfferParser` rejects outright.
+        /// So it is always given a real value, low enough to keep the small
+        /// print and high enough that Vision does not scan for sub-pixel noise.
         public var minimumTextHeight: Float
 
         public init(
             preferredLanguages: [String] = ["ro-RO", "en-US"],
             usesLanguageCorrection: Bool = false,
             recognitionLevel: VNRequestTextRecognitionLevel = .accurate,
-            minimumTextHeight: Float = 0
+            minimumTextHeight: Float = 0.008
         ) {
             self.preferredLanguages = preferredLanguages
             self.usesLanguageCorrection = usesLanguageCorrection
@@ -72,41 +90,124 @@ public struct VisionTextReader {
         }
     }
 
+    // MARK: - Coordinates
+
+    /// Where the image Vision actually looked at sits inside the screen it came
+    /// from, measured in ORIGINAL screen pixels.
+    ///
+    /// This is the whole answer to the coordinate problem. Vision reports boxes
+    /// normalised 0..1 against whatever image it was handed, origin at the
+    /// BOTTOM-left. `Bounds` — and every reading-order and largest-text
+    /// heuristic above it — is top-left origin in pixels of the ORIGINAL
+    /// screen.
+    ///
+    /// Because the boxes are normalised, the downscale factor drops out
+    /// entirely: multiplying by the size of the region as it was BEFORE
+    /// scaling gives screen pixels directly. That is what keeps
+    /// `TextBlock.glyphHeight` a usable proxy for font size instead of a number
+    /// that shrinks when the frame is downscaled or grows on a denser phone —
+    /// and `pickFare` picks the headline fare purely on glyph height.
+    public struct BoundsProjection: Sendable {
+        /// Size of the region handed to Vision, in original screen pixels —
+        /// NOT the size of the (downscaled) buffer Vision actually saw.
+        public let regionSize: CGSize
+        /// Offset of that region's top-left corner from the SCREEN's top-left
+        /// corner, in original screen pixels. Non-zero whenever the frame was
+        /// cropped before recognition.
+        public let regionOrigin: CGPoint
+
+        public init(regionSize: CGSize, regionOrigin: CGPoint = .zero) {
+            self.regionSize = regionSize
+            self.regionOrigin = regionOrigin
+        }
+
+        public static func wholeImage(width: Int, height: Int) -> BoundsProjection {
+            BoundsProjection(regionSize: CGSize(width: width, height: height))
+        }
+
+        /// The Y flip, and the single most dangerous line in the capture layer.
+        ///
+        /// `rect` is bottom-left origin within the region, so the distance from
+        /// the region's TOP edge is `regionSize.height - rect.maxY`; adding
+        /// `regionOrigin.y` puts it back on the screen. Invert this and reading
+        /// order comes out upside down, which swaps the pickup leg with the
+        /// paid leg — and a 2 km pickup for a 20 km ride becomes a 20 km pickup
+        /// for a 2 km ride. Nothing crashes; the verdict is simply wrong.
+        public func bounds(of normalizedBox: CGRect) -> Bounds {
+            let rect = VNImageRectForNormalizedRect(
+                normalizedBox,
+                Int(regionSize.width),
+                Int(regionSize.height)
+            )
+            return Bounds(
+                left: Int((regionOrigin.x + rect.minX).rounded()),
+                top: Int((regionOrigin.y + regionSize.height - rect.maxY).rounded()),
+                right: Int((regionOrigin.x + rect.maxX).rounded()),
+                bottom: Int((regionOrigin.y + regionSize.height - rect.minY).rounded())
+            )
+        }
+    }
+
     public let options: Options
 
     public init(options: Options = Options()) {
         self.options = options
     }
 
-    /// Recognised lines, in Vision's order. One observation per text line maps
-    /// one-to-one onto a `TextBlock`, which is the same granularity the Android
-    /// accessibility tree gives us.
-    public func readBlocks(from cgImage: CGImage, orientation: CGImagePropertyOrientation = .up) throws -> [TextBlock] {
+    // MARK: - Request
+
+    /// Builds the one text request this app uses.
+    ///
+    /// Static, and public, so the broadcast extension can build it ONCE and
+    /// re-perform it every frame. That matters: constructing a
+    /// `VNRecognizeTextRequest` per frame reloads the recognition model, which
+    /// a 50 MB extension running three frames a second cannot afford. Reusing
+    /// one request is safe as long as it is never performed concurrently with
+    /// itself — the results property is overwritten by each pass.
+    public static func makeRequest(options: Options = Options()) -> VNRecognizeTextRequest {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = options.recognitionLevel
         request.usesLanguageCorrection = options.usesLanguageCorrection
         request.minimumTextHeight = options.minimumTextHeight
-        request.recognitionLanguages = Self.resolveLanguages(options.preferredLanguages, for: request)
+        request.recognitionLanguages = resolveLanguages(options.preferredLanguages, for: request)
+        return request
+    }
 
+    /// One observation per text line maps one-to-one onto a `TextBlock`, which
+    /// is the same granularity the Android accessibility tree gives us.
+    public static func blocks(
+        from results: [VNObservation]?,
+        projection: BoundsProjection
+    ) -> [TextBlock] {
+        let observations = (results as? [VNRecognizedTextObservation]) ?? []
+        return observations.compactMap { observation in
+            guard let candidate = observation.topCandidates(1).first else { return nil }
+            return TextBlock(
+                text: candidate.string,
+                bounds: projection.bounds(of: observation.boundingBox),
+                viewId: nil,
+                confidence: candidate.confidence
+            )
+        }
+    }
+
+    // MARK: - Still images (share extension)
+
+    public func readBlocks(
+        from cgImage: CGImage,
+        orientation: CGImagePropertyOrientation = .up
+    ) throws -> [TextBlock] {
+        let request = Self.makeRequest(options: options)
         let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
         do {
             try handler.perform([request])
         } catch {
             throw ReadError.recognitionFailed(error)
         }
-
-        let width = CGFloat(cgImage.width)
-        let height = CGFloat(cgImage.height)
-
-        return (request.results ?? []).compactMap { observation in
-            guard let candidate = observation.topCandidates(1).first else { return nil }
-            return TextBlock(
-                text: candidate.string,
-                bounds: Self.bounds(of: observation, imageWidth: width, imageHeight: height),
-                viewId: nil,
-                confidence: candidate.confidence
-            )
-        }
+        return Self.blocks(
+            from: request.results,
+            projection: .wholeImage(width: cgImage.width, height: cgImage.height)
+        )
     }
 
     /// A snapshot in exactly the shape the Android capture layer produces, so
@@ -124,23 +225,41 @@ public struct VisionTextReader {
         )
     }
 
-    /// Vision's normalised box has its origin at the BOTTOM-left; `Bounds` —
-    /// like the Android tree it mirrors — measures from the TOP-left. Getting
-    /// this flip wrong silently inverts reading order, which would swap the
-    /// pickup and trip legs and quietly invert the verdict.
-    private static func bounds(
-        of observation: VNRecognizedTextObservation,
-        imageWidth: CGFloat,
-        imageHeight: CGFloat
-    ) -> Bounds {
-        let rect = VNImageRectForNormalizedRect(observation.boundingBox, Int(imageWidth), Int(imageHeight))
-        return Bounds(
-            left: Int(rect.minX.rounded()),
-            top: Int((imageHeight - rect.maxY).rounded()),
-            right: Int(rect.maxX.rounded()),
-            bottom: Int((imageHeight - rect.minY).rounded())
+    // MARK: - Live frames (broadcast extension)
+
+    /// Recognises text straight out of a pixel buffer.
+    ///
+    /// No `CGImage` in the middle on purpose: `VNImageRequestHandler` takes a
+    /// `CVPixelBuffer` directly, and going via `CGImage`/`UIImage` would copy
+    /// the whole frame into a second allocation, three times a second, inside
+    /// a process with a 50 MB ceiling.
+    ///
+    /// `projection` describes where `pixelBuffer` sits inside the original
+    /// screen, because by the time a frame reaches here it has usually been
+    /// cropped and downscaled — and the parser needs original screen pixels.
+    ///
+    /// `request` is passed in rather than built here so the caller can keep one
+    /// warm across frames.
+    public static func readBlocks(
+        from pixelBuffer: CVPixelBuffer,
+        request: VNRecognizeTextRequest,
+        projection: BoundsProjection,
+        orientation: CGImagePropertyOrientation = .up
+    ) throws -> [TextBlock] {
+        let handler = VNImageRequestHandler(
+            cvPixelBuffer: pixelBuffer,
+            orientation: orientation,
+            options: [:]
         )
+        do {
+            try handler.perform([request])
+        } catch {
+            throw ReadError.recognitionFailed(error)
+        }
+        return blocks(from: request.results, projection: projection)
     }
+
+    // MARK: - Languages
 
     /// Asking for a language the installed revision does not support throws at
     /// `perform` time, so we intersect first and always leave English in as a
@@ -154,9 +273,6 @@ public struct VisionTextReader {
         return resolved.isEmpty ? [supported[0]] : resolved
     }
 }
-
-#if canImport(ImageIO)
-import ImageIO
 
 extension VisionTextReader {
     /// A screenshot is ~3 MP and needs no downscaling, but a driver
@@ -201,9 +317,10 @@ extension VisionTextReader {
         return image
     }
 }
-#endif
 
-/// Screenshot in, `RideOffer` out. The whole iOS capture story in one type.
+/// Screenshot in, `RideOffer` out. The whole share-extension capture story in
+/// one type. The live path does not use this: it needs the parsed offer and
+/// the economics on separate steps so it can dedupe between them.
 public struct ScreenshotOfferReader {
     private let reader: VisionTextReader
     private let registry: OfferParserRegistry

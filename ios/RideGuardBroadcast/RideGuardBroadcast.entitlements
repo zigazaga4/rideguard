@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Must match RideGuard.entitlements, RideGuardShareExtension.entitlements
+	     and Persistence.appGroupIdentifier.
+
+	     It carries both halves of this extension's job. Reading: the vehicle
+	     profile and thresholds, without which the pipeline would compute
+	     against a default 7 L/100km petrol car and hand a confidently wrong
+	     verdict to a driver who may be in an EV. Writing: the LiveVerdict
+	     payload itself — the App Group container plus a Darwin notification is
+	     the only channel from this process to the app, so without the group
+	     this extension can see the screen and has no way to say so.
+	     `LiveOfferPipeline.start()` refuses to run at all if it is missing. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.rideguard.shared</string>
+	</array>
+</dict>
+</plist>

@@ -40,9 +40,12 @@ public struct ParserHints: Sendable {
     /// Multilingual on purpose — Romanian first, since that is the primary
     /// market here, then English. Matching is case-insensitive substring.
     public static let defaultOfferKeywords: [String] = [
-        // Romanian
-        "accept", "acceptă", "refuz", "refuză", "respinge",
-        "cursă", "comandă", "preluare", "destinaț", "client",
+        // Romanian. "potrivire" is the accept verb on BOTH real cards —
+        // neither Bolt nor Uber says "Acceptă" or "Accept" anywhere in the
+        // Romanian build, so without it the gate leans entirely on words that
+        // only one of the two happens to show.
+        "potrivire", "accept", "acceptă", "refuz", "refuză", "respinge",
+        "cursă", "comandă", "preluare", "destinaț", "client", "numerar",
         // English
         "decline", "dismiss", "pickup", "pick up", "dropoff", "drop off",
         "away", "trip", "ride", "fare", "rider", "passenger",
@@ -105,8 +108,19 @@ open class HeuristicOfferParser: OfferParser {
         let (pickupMin, tripMin) = assignLegs(durations.map(\.minutes))
 
         var confidence: Float = 1.0
-        if pickupKm == nil { confidence -= 0.30 }
-        if tripKm == nil { confidence -= 0.30 }
+        // 0.50, not 0.30, and the exact figure is load-bearing.
+        //
+        // A missing distance leg means cost gets charged against the paid leg
+        // alone, which systematically FLATTERS the offer — the deadhead simply
+        // vanishes from the arithmetic. At 0.30 the score lands on 0.60, which
+        // is above ProfitCalculator's 0.55 threshold, so the app would render a
+        // confident green verdict built on a leg nobody read. 0.50 drops it to
+        // 0.50 and it surfaces as UNKNOWN instead.
+        //
+        // Keep in step with OfferParser.kt. The Kotlin side has tests pinning
+        // this; Swift does not yet.
+        if pickupKm == nil { confidence -= 0.50 }
+        if tripKm == nil { confidence -= 0.50 }
         if pickupMin == nil { confidence -= 0.10 }
         if tripMin == nil { confidence -= 0.10 }
         if distances.count > 3 || durations.count > 3 { confidence -= 0.10 }

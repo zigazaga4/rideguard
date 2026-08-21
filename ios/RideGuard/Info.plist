@@ -34,6 +34,27 @@
 	     missing key looks exactly like a driver who declined. -->
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<!--
+	  Keeps the app alive behind the Picture-in-Picture overlay.
+
+	  PiP is the only window class iOS lets float above another app, and it
+	  only survives backgrounding while the process does. An `AVAudioSession`
+	  in `.playback` holds the process up; this key is what permits it.
+
+	  The session MUST be configured `.mixWithOthers`. Without that we would
+	  duck or stop the driver's music and navigation the moment the HUD
+	  appeared, which is unacceptable in a car and would get the app deleted
+	  faster than any bug.
+
+	  Note this is exactly the kind of thing App Review rejects (Guideline
+	  2.5.4 — background audio without playing audio). Distribution is
+	  TestFlight and, in the EU, an alternative marketplace. See
+	  docs/ios-platform-limits.md.
+	-->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<!-- The app has no networking beyond the update manifest, which is HTTPS
 	     to raw.githubusercontent.com. No ATS exception is needed, and none
 	     should ever be added: the OTA install path REQUIRES valid HTTPS. -->

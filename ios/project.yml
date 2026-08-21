@@ -16,6 +16,17 @@ name: RideGuard
 
 options:
   bundleIdPrefix: com.rideguard
+  # iOS 16 is the floor because it reaches iPhone 11, which is the oldest
+  # phone this has to run on. That choice has a consequence worth stating:
+  # an iPhone 11 has no Dynamic Island, so the Live Activity path cannot be
+  # the primary display — a Lock Screen activity is invisible while Bolt is
+  # in the foreground, which is the only moment that matters. The custom
+  # Picture-in-Picture overlay is therefore the real HUD, and Live Activities
+  # are the nicer-looking extra on iPhone 14 Pro and later.
+  #
+  # Everything else here is already satisfied at 16.0: ReplayKit broadcast
+  # extensions are iOS 12+, sample-buffer PiP is iOS 15+, Vision text
+  # recognition revision 3 is iOS 16+.
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
@@ -67,6 +78,7 @@ targets:
     sources:
       - path: RideGuard/App
       - path: RideGuard/Capture
+      - path: RideGuard/Overlay
       - path: RideGuardLiveActivity
       - path: RideGuard/Assets.xcassets
     dependencies:
@@ -75,6 +87,7 @@ targets:
       # XcodeGen embeds app-extension dependencies into PlugIns for us.
       - target: RideGuardShareExtension
       - target: RideGuardWidgets
+      - target: RideGuardBroadcast
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.rideguard.app
@@ -113,6 +126,41 @@ targets:
         # vehicle profile out of its own container and gives confidently wrong
         # answers — the worst failure mode this app has.
         CODE_SIGN_ENTITLEMENTS: RideGuardShareExtension/RideGuardShareExtension.entitlements
+
+  # The screen reader. This is the target that makes iOS behave like Android.
+  #
+  # ReplayKit only ever delivers frames to a Broadcast Upload Extension, never
+  # to an app, and this extension cannot draw over anything. The app can float
+  # a window (via PiP) but can never see the screen. So the work is split
+  # across a process boundary iOS gives us no choice about, and the two halves
+  # talk through the App Group — see Core/Live/LiveVerdict.swift.
+  #
+  # Hard ~50 MB memory ceiling. Exceed it and iOS kills the extension
+  # mid-shift with no useful diagnostic, so everything in SampleHandler is
+  # written around that number.
+  RideGuardBroadcast:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: RideGuardBroadcast
+        excludes:
+          - Info.plist
+      - path: RideGuard/Capture
+      # Compiled in deliberately: the vehicle profile and thresholds live in
+      # the App Group, and the extension must read them with the same code the
+      # app writes with. An extension that falls back to a default profile
+      # produces confidently wrong verdicts — the worst failure this app has.
+      - path: RideGuard/App/Persistence.swift
+    dependencies:
+      - target: RideGuardCore
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rideguard.app.broadcast
+        PRODUCT_NAME: RideGuardBroadcast
+        INFOPLIST_FILE: RideGuardBroadcast/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: RideGuardBroadcast/RideGuardBroadcast.entitlements
 
   # Live Activity host. Optional in every sense: delete this target and the app
   # still does everything that matters.

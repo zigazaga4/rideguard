@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- This name is what the driver taps in the Control Centre screen-record
+	     long-press, so it has to read as the app and not as a target name. -->
+	<key>CFBundleDisplayName</key>
+	<string>RideGuard</string>
+	<key>CFBundleName</key>
+	<string>RideGuardBroadcast</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<!-- Every extension MUST carry the same version pair as the app. iOS
+	     refuses to install a bundle whose embedded extensions disagree, and the
+	     error it gives points at signing rather than at this. -->
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.broadcast-services-upload</string>
+		<!-- Module-qualified, because the principal class is looked up by name
+		     through the Objective-C runtime and Swift class names are mangled
+		     with their module. Rename the target's PRODUCT_MODULE_NAME or the
+		     class and this silently resolves to nothing: the broadcast starts,
+		     no frames are ever handled, and nothing is logged. -->
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).SampleHandler</string>
+		<!-- Sample buffers, not a movie file. The alternative mode hands over a
+		     finished recording after the fact, which is useless for answering a
+		     question the driver has fifteen seconds to decide. -->
+		<key>RPBroadcastProcessMode</key>
+		<string>RPBroadcastProcessModeSampleBuffer</string>
+	</dict>
+</dict>
+</plist>

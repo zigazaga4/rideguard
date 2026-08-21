@@ -5,33 +5,107 @@ import Foundation
 //  half that produces the text it reasons about lives outside Core, in
 //  `RideGuard/Capture`, because Core must import nothing but Foundation.
 
-/// Guesses which driver app a shared screenshot came from.
+/// Works out which driver app a screenshot came from, by reading it.
 ///
-/// On Android the package name is authoritative. Here there is no package
-/// name — an image carries no provenance — so we sniff the text. Kept pure and
-/// outside the Vision guard so it is testable on any platform.
+/// On Android the package name is authoritative and this problem does not
+/// exist. Here there is none — an image carries no provenance, and a ReplayKit
+/// frame carries no more than a screenshot does — so the text has to say.
+///
+/// ## Why the markers are what they are
+///
+/// Every string below was taken from a screenshot of a real Romanian offer
+/// card, not guessed from the English apps. Two things that costs us:
+///
+/// 1. **Neither card says "Accept".** Both accept buttons read `Potrivire`.
+///    An earlier version listed `"accept"` as an Uber marker, which then
+///    matched Bolt's own disclaimer — *"…nu va afecta rata de **accept**are"* —
+///    so a genuine Bolt card scored 1–1 and fell through to the fallback. A
+///    marker that appears on the other platform's card is worse than no marker.
+/// 2. **Diacritics survive OCR unreliably.** Romanian ș and ț exist at two
+///    different code points each (U+0219/U+015F, U+021B/U+0163) and Vision
+///    picks between them inconsistently, so `câștig` is a coin flip. Every
+///    decisive marker here is therefore plain ASCII.
 public enum ScreenshotPlatformGuess {
 
-    private static let boltMarkers = [
-        "bolt", "comandă nouă", "comanda noua", "cursă nouă", "cursa noua", "acceptă", "mtakso",
+    // EVERY marker below must be written in plain ASCII, because `normalise`
+    // folds the haystack's diacritics away before comparing. A marker spelled
+    // "cursă lungă" would never match anything.
+
+    /// Present on one platform's card and impossible on the other's. One hit
+    /// decides it outright — counting is only for the ambiguous case.
+    private static let boltDecisive = [
+        "taxe incluse",     // "11,62 lei (NET, taxe incluse)"
+        "cerere mare",      // surge chip
+        "afara razei",      // "În afara razei"
+        "respingerea",      // "Respingerea cursei nu va afecta rata de acceptare"
     ]
-    private static let uberMarkers = [
-        "uber", "uberx", "uber comfort", "trip request", "accept", "you're online",
+    private static let uberDecisive = [
+        "comisionul",       // "Câștig net (fără comisionul Uber)"
+        "uberx",
+        "uber comfort",
+        "cursa lunga",      // "Cursă lungă (peste 45 min.)"
     ]
 
-    /// Returns the better-supported guess, or `fallback` when the text gives
-    /// no signal either way.
+    /// Weaker signals: real, but capable of appearing incidentally — a Bolt
+    /// receipt open inside the Uber app, an address containing the word.
+    private static let boltWeak = ["bolt", "comanda noua", "cursa noua", "mtakso"]
+    private static let uberWeak = ["uber", "trip request", "distanta"]
+
+    /// Decides only when the text actually says so.
     ///
-    /// `fallback` is the platform the driver picked in settings, because a
-    /// driver who works one app overwhelmingly gets offers from that app, and
-    /// guessing wrong only changes the commission default — which the verdict
-    /// card shows and the driver can correct in one tap.
-    public static func guess(from text: String, fallback: Platform) -> Platform {
-        let haystack = text.lowercased()
-        let bolt = boltMarkers.reduce(0) { $0 + (haystack.contains($1) ? 1 : 0) }
-        let uber = uberMarkers.reduce(0) { $0 + (haystack.contains($1) ? 1 : 0) }
+    /// Used by the live broadcast path, where there is no sensible default: a
+    /// frame of the home screen is not a quiet vote for either platform, and
+    /// treating it as one would attach a verdict to whatever is on screen.
+    public static func strictGuess(from text: String) -> Platform? {
+        let haystack = normalise(text)
+
+        if boltDecisive.contains(where: haystack.contains) { return .bolt }
+        if uberDecisive.contains(where: haystack.contains) { return .uber }
+
+        let bolt = boltWeak.count(matchingIn: haystack)
+        let uber = uberWeak.count(matchingIn: haystack)
         if bolt > uber { return .bolt }
         if uber > bolt { return .uber }
-        return fallback
+        return nil
+    }
+
+    /// Same reasoning, but never returns "no idea".
+    ///
+    /// The share-extension path has a sensible default and the live path does
+    /// not, which is the only reason both exist. A driver who works one app
+    /// overwhelmingly gets offers from that app, and guessing wrong here only
+    /// changes which per-platform default applies — the verdict card shows it
+    /// and he can correct it in one tap.
+    public static func guess(from text: String, fallback: Platform) -> Platform {
+        strictGuess(from: text) ?? fallback
+    }
+
+    /// Lowercase with every Romanian diacritic folded to ASCII.
+    ///
+    /// Explicit rather than `folding(options: .diacriticInsensitive)` because
+    /// ș and ț each exist at two code points (comma-below U+0219/U+021B and the
+    /// cedilla forms U+015F/U+0163) and Vision picks between them
+    /// inconsistently — the same card OCRs both ways on different runs. Listing
+    /// the pairs is the only version that behaves identically every time, and
+    /// it means each marker is written exactly once.
+    private static func normalise(_ text: String) -> String {
+        var s = text.lowercased()
+        let folds = [
+            ("ă", "a"), ("â", "a"), ("î", "i"),
+            ("ș", "s"), ("ş", "s"),
+            ("ț", "t"), ("ţ", "t"),
+        ]
+        for (from, to) in folds {
+            s = s.replacingOccurrences(of: from, with: to)
+        }
+        return s
+    }
+}
+
+private extension Array where Element == String {
+    /// Markers are pre-normalised at the call site, so this stays a plain
+    /// substring count.
+    func count(matchingIn haystack: String) -> Int {
+        reduce(0) { $0 + (haystack.contains($1) ? 1 : 0) }
     }
 }

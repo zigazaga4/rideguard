@@ -114,6 +114,33 @@ public enum NumberParsing {
         trimTrailingZeros(roundTo(value, decimals: decimals), decimals: decimals)
     }
 
+    /// Fixed decimals, zeros kept.
+    ///
+    /// The two per-kilometre lines sit directly above one another and are meant
+    /// to be read as a pair. Trimming turns 4.00 into "4" while 3.13 keeps both
+    /// places, and the mismatch makes a before/after pair look like two
+    /// unrelated numbers. Alignment is the whole point, so these keep zeros.
+    public static func formatFixed(_ value: Double, decimals: Int = 2) -> String {
+        String(format: "%.\(decimals)f", roundTo(value, decimals: decimals))
+    }
+
+    /// Picks the decimal count from the magnitude.
+    ///
+    /// Fixed decimals lie at the extremes: rounding -0.42 to zero places gives
+    /// "0", which on a loss-making ride reads as "breaks even" when the truth
+    /// is "you are paying to drive". Small numbers keep their decimals; large
+    /// ones drop them so the HUD stays narrow.
+    public static func formatAuto(_ value: Double) -> String {
+        let magnitude = value < 0 ? -value : value
+        let decimals: Int
+        switch magnitude {
+        case 100...: decimals = 0
+        case 10...: decimals = 1
+        default: decimals = 2
+        }
+        return formatRate(value, decimals: decimals)
+    }
+
     public static func roundTo(_ value: Double, decimals: Int) -> Double {
         var factor = 1.0
         for _ in 0..<max(0, decimals) { factor *= 10 }
