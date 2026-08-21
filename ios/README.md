@@ -9,10 +9,20 @@ builds clean and passes **85 tests**, run on Linux with the Swift 6.1 toolchain.
 That is the half where a mistake shows up as a wrong number rather than a build
 error, so it is the half worth proving first, and it is proven.
 
-**The UI and the two extensions have never been near a compiler.** Everything
-that imports SwiftUI, AVKit, Vision, ReplayKit or ActivityKit needs an SDK that
-only exists on a Mac. It parses cleanly, and it has been read hard, but treat
-the first Xcode build as a debugging session — see
+**The UI and all three extensions compile, and the app launches.** All six
+targets build against Xcode 26.3 / iOS 26.3 and run in the Simulator. Two
+errors stopped the very first build — an internal method used as a public
+default argument, and a delegate method whose argument label was
+`completionHandler:` where the protocol says `completion:`. That second one is
+worth remembering: a wrong label is a *different method*, so the type silently
+failed to conform, and had it slipped through, AVKit would have waited forever
+on a callback that never came.
+
+**What has not happened is a run on real hardware**, and that gap is bigger
+than it sounds. The Simulator cannot start a ReplayKit broadcast and has no
+Picture-in-Picture at all — so the two features the live HUD is made of are
+precisely the two the Simulator cannot exercise. Compiling proves the wiring;
+only a phone proves the HUD. See
 [What to check first](#what-to-check-first).
 
 Run [`./verify.sh`](verify.sh) first. It does the whole check in one command,
@@ -169,23 +179,39 @@ on screen, which is the entire point of the app.
 
 ## What to check first
 
-Nothing here has been near a compiler, so the first build will produce errors.
-Highest-risk areas, in order:
+It compiles, so the remaining risk has moved onto the phone. These are ordered
+by how *quietly* they fail — the ones at the top produce no crash, no log line
+and no error, just a HUD that never appears.
 
-1. **`RideGuard/Capture/`** — Vision API surface (`VNRecognizeTextRequest`,
-   revision constants, `recognitionLanguages`) is the easiest thing to get
-   subtly wrong from memory.
-2. **`RideGuardLiveActivity/` + `RideGuardWidgets/`** — ActivityKit is strict
-   about attribute types and `Info.plist` keys, and the app target needs
-   `NSSupportsLiveActivities`.
-3. **App Group plumbing in `Persistence.swift`** — verify the app and the
-   extension genuinely see the same container, by writing in one and reading in
-   the other. Do not assume.
-4. **`Core/Parse/`** — mirrors the Kotlin parser. If a number comes out wrong,
-   diff it against
-   `android/domain/src/main/kotlin/com/rideguard/domain/parse/` rather than
-   guessing; the Kotlin side has 72 passing tests and is the reference.
+1. **The App Group actually being shared.** Write from the app, read from the
+   extension, and check. Do not assume it works because the entitlement is
+   listed: this is the single point of failure for the whole live path, and its
+   failure mode is total silence. `verify.sh` checks that the four files
+   *agree* on the identifier, which is necessary and not sufficient — only the
+   device proves the container is really shared.
+2. **PiP starting at all.** `isPictureInPicturePossible` stays false until the
+   layer is in a window *and* has been given a frame, so the controller waits
+   on KVO rather than calling `startPictureInPicture()` immediately. If the
+   window never appears, that observation is where to look first. Confirm on a
+   real phone — the Simulator has no PiP, so a failure there means nothing.
+3. **The 50 MB ceiling.** Attach Instruments to `RideGuardBroadcast` and watch
+   the footprint over a few minutes of real driving. Exceeding it kills the
+   extension mid-shift with no useful diagnostic. If it climbs, the crop and
+   downscale in `BroadcastFrameReader` are the levers, in that order.
+4. **`offerCardHeightFraction` (0.60) in `BroadcastFrameReader`.** The crop that
+   fails *wrongly* rather than emptily: too tight and the parser reads the
+   surge line instead of the fare, and you get a confident verdict built on the
+   wrong number. If the HUD shows a wrong figure rather than none, start here.
+5. **Vision on the real cards.** `usesLanguageCorrection` must stay off —
+   correction turns `11,62` into words. The parsers are still heuristic and
+   have never seen a real shift; Settings → Developer → record mode dumps JSON
+   fixtures to tune against.
 
-Run `swift test` before opening Xcode. It exercises the parser, the economics
-and the update-manifest rules with no signing and no device, so it separates
-"the logic is wrong" from "the project is misconfigured".
+The fastest loop that needs no driving: build the mock harness
+(`cd mock && npx expo run:ios`), start the broadcast, and fire its `real-bolt`
+and `real-uber` presets. Both render the transcribed card text verbatim, so
+`ScreenshotPlatformGuess` routes them without the hidden marker Android needs.
+
+If a *number* is wrong rather than missing, the domain is the reference, not
+the phone: `swift test` runs 85 cases in two seconds, and the Kotlin side has
+72 more over the same maths.

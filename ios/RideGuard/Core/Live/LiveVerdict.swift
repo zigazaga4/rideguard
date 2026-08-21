@@ -183,12 +183,27 @@ public enum LiveVerdictChannel {
     /// so the handler is parked in a static. That is a real constraint of the
     /// API, not a shortcut — and it is why only one observer is supported,
     /// which is all the app needs.
+    /// An address unique to this process, identifying our observer and no
+    /// other.
+    ///
+    /// Registering with `nil` is the obvious thing and forces the teardown to
+    /// be `CFNotificationCenterRemoveEveryObserver(centre, nil)` — which
+    /// removes every nil-token Darwin observer in the process, including ones
+    /// registered by frameworks we merely link against. One byte, allocated
+    /// once and deliberately never freed, is an address nothing else can hold.
+    private static let observerToken = UnsafeRawPointer(
+        UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+    )
+
     public static func observe(_ onChange: @escaping (LiveVerdict) -> Void) {
+        // Idempotent: registering twice would deliver every verdict twice, and
+        // the overlay would repaint on both.
+        stopObserving()
         handler = onChange
 
         CFNotificationCenterAddObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),
-            nil,
+            observerToken,
             { _, _, _, _, _ in
                 let latest = LiveVerdictChannel.read()
                 DispatchQueue.main.async {
@@ -204,8 +219,10 @@ public enum LiveVerdictChannel {
 
     public static func stopObserving() {
         handler = nil
-        CFNotificationCenterRemoveEveryObserver(
+        CFNotificationCenterRemoveObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),
+            observerToken,
+            CFNotificationName(notificationName as CFString),
             nil
         )
     }

@@ -51,17 +51,29 @@ public enum LiveActivityController {
         #if canImport(ActivityKit)
         guard #available(iOS 16.2, *), ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
-        endAll()
-
         let attributes = VerdictActivityAttributes(platformName: economics.offer.platform.displayName)
         let state = VerdictActivityAttributes.ContentState(economics: economics)
         let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(staleAfter))
 
-        // Requesting a Live Activity from an app extension is not reliably
-        // permitted on every OS version, and the failure is a thrown error
-        // rather than a crash. Swallowing it is correct: the share sheet has
-        // already shown the driver the verdict, which is the part that matters.
-        _ = try? Activity.request(attributes: attributes, content: content, pushType: nil)
+        // One task that ends the old activities and THEN requests the new one.
+        //
+        // The previous version called `endAll()` and requested immediately
+        // after. `endAll` fires a detached task per activity and returns at
+        // once, so the request raced the endings and generally won — producing
+        // exactly the two-activity Lock Screen this method exists to prevent,
+        // and risking the per-app concurrent-activity limit on top.
+        Task {
+            for activity in Activity<VerdictActivityAttributes>.activities {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+
+            // Requesting a Live Activity from an app extension is not reliably
+            // permitted on every OS version, and the failure is a thrown error
+            // rather than a crash. Swallowing it is correct: the share sheet has
+            // already shown the driver the verdict, which is the part that
+            // matters.
+            _ = try? Activity.request(attributes: attributes, content: content, pushType: nil)
+        }
         #endif
     }
 

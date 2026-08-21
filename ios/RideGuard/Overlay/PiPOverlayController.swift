@@ -126,6 +126,18 @@ final class PiPOverlayController: NSObject, ObservableObject {
         activateAudioSession()
         attachToKeyWindowIfDetached()
         configurePictureInPicture()
+
+        // No controller means no window will ever appear, and the Simulator is
+        // the everyday case. Without this the app reports itself running, holds
+        // an audio session open for the shift and renders 7,200 frames an hour
+        // into a layer nobody can see — while the driver waits for a HUD that
+        // was never coming. `configurePictureInPicture` has already put the
+        // reason in `lastError`; failing here is what lets the UI show it.
+        guard pipController != nil else {
+            deactivateAudioSession()
+            return
+        }
+
         startFrameLoop()
 
         LiveVerdictChannel.observe { [weak self] verdict in
@@ -145,6 +157,20 @@ final class PiPOverlayController: NSObject, ObservableObject {
         }
         LiveVerdictChannel.stopObserving()
         stopFrameLoop()
+
+        // The KVO handler outlives the session otherwise. It is harmless today
+        // only because `startPictureInPictureIfWanted` re-checks `wantsOverlay`
+        // — which makes it a trap for whoever next changes that method.
+        possibleObservation?.invalidate()
+        possibleObservation = nil
+
+        // Reset the remembered snapshot, not just the layer. `setSnapshot`
+        // drops a value equal to the current one, so without this the first
+        // frame of the next session is drawn from the last session's numbers.
+        // Assigned directly rather than through `setSnapshot` so it does not
+        // render one more frame into a layer we are about to flush.
+        renderQueue.async { [weak self] in self?.snapshot = .waiting }
+
         displayLayer.flushAndRemoveImage()
         deactivateAudioSession()
 
@@ -278,9 +304,19 @@ final class PiPOverlayController: NSObject, ObservableObject {
     /// On `renderQueue`.
     private func renderFrame() {
         let duration = CMTime(seconds: Self.frameInterval, preferredTimescale: 600)
-        guard let sampleBuffer = renderer.makeSampleBuffer(snapshot, duration: duration) else { return }
+        let sampleBuffer = renderer.makeSampleBuffer(snapshot, duration: duration)
         DispatchQueue.main.async { [weak self] in
-            self?.enqueue(sampleBuffer)
+            // Expiry runs whether or not a frame came out, and before the frame
+            // is handed over rather than after.
+            //
+            // This is the only thing that blanks a stale HUD, and it used to sit
+            // at the bottom of `enqueue`, behind two early returns — a renderer
+            // that returned nil, and a layer that was not ready. Both of those
+            // are precisely the states in which the HUD is stuck showing an old
+            // number over an unrelated screen, so the check was unreachable
+            // exactly when it was needed.
+            self?.expireStaleVerdict()
+            if let sampleBuffer { self?.enqueue(sampleBuffer) }
         }
     }
 
@@ -301,7 +337,6 @@ final class PiPOverlayController: NSObject, ObservableObject {
         }
         guard displayLayer.isReadyForMoreMediaData else { return }
         displayLayer.enqueue(sampleBuffer)
-        expireStaleVerdict()
     }
 
     private func setSnapshot(_ next: HudSnapshot) {

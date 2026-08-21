@@ -166,6 +166,20 @@ public struct VisionTextReader {
     /// itself — the results property is overwritten by each pass.
     public static func makeRequest(options: Options = Options()) -> VNRecognizeTextRequest {
         let request = VNRecognizeTextRequest()
+
+        // Pinned, and set FIRST — `supportedRecognitionLanguages()` below is
+        // answered per revision, so resolving languages against an unpinned
+        // request asks a question whose answer changes with the OS.
+        //
+        // Left unset, Vision uses whatever revision the running system defaults
+        // to. That means an iOS update can silently change how the offer card
+        // is tokenised, mid-shift, on a phone we cannot attach a debugger to —
+        // and the symptom would be a parser that quietly stopped finding the
+        // fare, with nothing in the diff to explain it. Revision 3 is the iOS
+        // 16 baseline, which is this app's floor, so every supported device
+        // reads the card the same way.
+        request.revision = VNRecognizeTextRequestRevision3
+
         request.recognitionLevel = options.recognitionLevel
         request.usesLanguageCorrection = options.usesLanguageCorrection
         request.minimumTextHeight = options.minimumTextHeight
