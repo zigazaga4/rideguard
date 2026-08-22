@@ -48,11 +48,39 @@
         android:theme="@style/Theme.RideGuard"
         tools:targetApi="35">
 
+        <!--
+          Resizable, and it says so rather than inheriting it.
+
+          targetSdk 35 already defaults this to true, but the default is the
+          kind of thing a later targetSdk bump or a stray library manifest can
+          flip underneath you, and a driver running RideGuard in split-screen
+          beside Bolt is a real use of this app.
+
+          `configChanges` covers everything a resize actually changes. Without
+          it Android destroys and recreates the Activity on every size change —
+          which flickers all the way through a drag-resize. This is a pure
+          Compose UI with one hard-coded dark theme and no resource qualifiers,
+          so there is nothing that needed re-resolving on recreate; Compose
+          reads the new size straight from the composition. State is saved with
+          rememberSaveable regardless, because process death still recreates.
+
+          `<layout>` sets the freeform floor. Below roughly this the number
+          fields stop fitting side by side, and a HUD app squashed to a sliver
+          is worse than one that simply refuses to get smaller.
+        -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden|density|uiMode"
             android:exported="true"
             android:launchMode="singleTop"
+            android:resizeableActivity="true"
             android:theme="@style/Theme.RideGuard">
+            <layout
+                android:defaultHeight="700dp"
+                android:defaultWidth="420dp"
+                android:gravity="center"
+                android:minHeight="400dp"
+                android:minWidth="320dp" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

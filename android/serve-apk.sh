@@ -55,13 +55,49 @@ ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null ||
 
 # --- Build ------------------------------------------------------------------
 
+# An older run of this script, still open in another window, would keep
+# answering on this port and hand the phone yesterday's build. The newest
+# invocation wins.
+if lsof -ti "tcp:$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    lsof -ti "tcp:$PORT" -sTCP:LISTEN | xargs kill 2>/dev/null || true
+    sleep 1
+    warn "stopped an older server that was still holding port $PORT"
+fi
+
 bold "==> Building the release APK"
 cd "$ANDROID_DIR"
+
+OUT_DIR="app/build/outputs/apk/sideload/release"
+
+# Deleted BEFORE the build, not after, and this is the whole guarantee that
+# what gets served is what was just built. Gradle leaves the previous APK in
+# place when a build fails, and it does not clean out APKs whose name changed
+# with the version — so "an APK exists here" proved nothing. Now the file's
+# existence IS the proof the build produced it. Only the packaging step re-runs;
+# compilation stays incremental.
+rm -rf "$OUT_DIR"
+
 ./gradlew :app:assembleSideloadRelease -q >/dev/null 2>&1 \
     || die "the build failed — run ./gradlew :app:assembleSideloadRelease to see why"
 
-apk=$(find app/build/outputs/apk/sideload/release -name '*.apk' | head -1)
-[ -n "$apk" ] || die "the build produced no APK"
+# AGP writes down exactly which file it produced. Trust that rather than
+# globbing: `find ... | head -1` returns directory order, not the newest, so it
+# picked whichever APK the filesystem happened to list first.
+apk=$(python3 - "$OUT_DIR/output-metadata.json" <<'PYEOF' 2>/dev/null || true
+import json, os, sys
+meta = sys.argv[1]
+with open(meta) as fh:
+    data = json.load(fh)
+print(os.path.join(os.path.dirname(meta), data["elements"][0]["outputFile"]))
+PYEOF
+)
+
+# Fall back to newest-by-mtime if AGP ever changes that file's shape.
+if [ -z "${apk:-}" ] || [ ! -f "$apk" ]; then
+    apk=$(find "$OUT_DIR" -name '*.apk' -print0 2>/dev/null \
+          | xargs -0 ls -t 2>/dev/null | head -1) || true
+fi
+[ -n "${apk:-}" ] && [ -f "$apk" ] || die "the build produced no APK"
 ok "built $(basename "$apk") ($(du -h "$apk" | cut -f1))"
 
 if [ ! -f "$HOME/.rideguard/keystore.properties" ]; then
@@ -78,11 +114,26 @@ fi
 
 rm -rf "$SERVE_DIR"
 mkdir -p "$SERVE_DIR"
-cp "$apk" "$SERVE_DIR/rideguard.apk"
 
 built_at=$(date '+%d %b %Y, %H:%M')
+stamp=$(date '+%H%M%S')
 version=$(grep -m1 'versionName = ' app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
 git_rev=$(git -C "$ANDROID_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)
+
+# A dirty tree is the normal case while working, but it means the git rev on
+# the page does NOT describe what is in the APK. Say so rather than implying a
+# clean build.
+if ! git -C "$ANDROID_DIR" diff --quiet HEAD 2>/dev/null; then
+    git_rev="$git_rev+edits"
+fi
+
+# The filename changes every run, on purpose. Served under one fixed name, the
+# phone's browser is entitled to reuse the copy it already downloaded — you
+# scan, tap install, and get the previous build with nothing on screen saying
+# so. A URL that has never been requested before cannot be answered from a
+# cache, and the name doubles as a record of which build is on the phone.
+apk_name="rideguard-$version-$git_rev-$stamp.apk"
+cp "$apk" "$SERVE_DIR/$apk_name"
 
 cat > "$SERVE_DIR/index.html" <<HTML
 <!doctype html>
@@ -102,7 +153,7 @@ cat > "$SERVE_DIR/index.html" <<HTML
 </style>
 <h1>RideGuard</h1>
 <p>$version &middot; $git_rev &middot; built $built_at</p>
-<a class="btn" href="rideguard.apk">Download and install</a>
+<a class="btn" href="$apk_name">Download and install</a>
 <ol>
   <li>Tap the button. Android will warn you it is from an unknown source &mdash;
       allow it for your browser, once.</li>
@@ -126,5 +177,30 @@ bold "Serving. Close this window when the phone has it."
 printf '  Both devices must be on the same Wi-Fi.\n\n'
 
 cd "$SERVE_DIR"
+
+# python3 -m http.server would do, except it sends no cache directives at all,
+# which leaves the landing page itself cacheable — you would reload it and see
+# the old build's download link. Same server, plus no-store.
+#
 # Foreground on purpose: this process IS the lifetime of the download link.
-exec python3 -m http.server "$PORT" --bind 0.0.0.0
+cat > server.py <<'PYEOF'
+import functools, http.server, sys
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        super().end_headers()
+
+    def log_message(self, fmt, *args):
+        # One readable line per hit, so you can see the phone actually pull it.
+        sys.stderr.write("  %s\n" % (fmt % args))
+
+http.server.test(
+    HandlerClass=functools.partial(Handler, directory="."),
+    ServerClass=http.server.ThreadingHTTPServer,
+    port=int(sys.argv[1]),
+    bind="0.0.0.0",
+)
+PYEOF
+exec python3 server.py "$PORT"

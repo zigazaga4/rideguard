@@ -22,6 +22,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
@@ -97,8 +98,11 @@ class MainActivity : ComponentActivity() {
                         .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)),
                 ) {
                     val onboarded by settings.isOnboarded.collectAsState(initial = null)
-                    var forceOnboarding by remember { mutableStateOf(false) }
-                    var showUpdates by remember { mutableStateOf(false) }
+                    // Saveable, not remembered. Where you are in the app has
+                    // to survive the Activity being recreated — process death,
+                    // and on a foldable or in split-screen, a resize.
+                    var forceOnboarding by rememberSaveable { mutableStateOf(false) }
+                    var showUpdates by rememberSaveable { mutableStateOf(false) }
 
                     when {
                         // null means DataStore has not answered yet. Rendering

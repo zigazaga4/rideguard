@@ -24,6 +24,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -78,7 +79,7 @@ fun SettingsScreen(
     val thresholds by settings.thresholds.collectAsState(initial = DriverThresholds())
     val recordMode by settings.recordModeEnabled.collectAsState(initial = false)
 
-    var showDeveloper by remember { mutableStateOf(false) }
+    var showDeveloper by rememberSaveable { mutableStateOf(false) }
 
     // Every one of these is granted on a system screen in another process, with
     // no callback and no broadcast. Coming back to the foreground IS the signal

@@ -18,6 +18,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -59,11 +61,25 @@ fun OnboardingScreen(
     onFinished: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var step by remember { mutableStateOf(0) }
+    // All saveable, because this screen is the one place where losing state
+    // costs the driver real typing. An Activity recreate — a resize in
+    // split-screen, a fold, the system reclaiming memory behind a permission
+    // dialog — used to drop him back on step one with his consumption and fuel
+    // price wiped.
+    var step by rememberSaveable { mutableStateOf(0) }
 
-    var fuelType by remember { mutableStateOf(FuelType.PETROL) }
-    var consumption by remember { mutableStateOf("7.0") }
-    var energyPrice by remember { mutableStateOf("7.5") }
+    // Saved by name rather than by the enum itself. The default saver would
+    // lean on FuelType being Serializable, which is true today and is not
+    // something this screen should depend on.
+    var fuelType by rememberSaveable(
+        stateSaver = Saver(
+            save = { it.name },
+            restore = { runCatching { FuelType.valueOf(it) }.getOrDefault(FuelType.PETROL) },
+        ),
+    ) { mutableStateOf(FuelType.PETROL) }
+
+    var consumption by rememberSaveable { mutableStateOf("7.0") }
+    var energyPrice by rememberSaveable { mutableStateOf("7.5") }
 
     fun num(s: String, fallback: Double) = NumberParsing.parseDecimal(s) ?: fallback
 
