@@ -84,9 +84,15 @@ object Permissions {
      * services is why the restriction exists, and RideGuard is sideloaded by
      * design, so it lands on the wrong side of it every time.
      *
-     * The unlock is buried: App info → the three-dot menu top right → "Allow
-     * restricted settings". Nobody finds that on their own, which is why it gets
-     * its own step ahead of the accessibility one.
+     * The unlock is buried, and the order is counter-intuitive enough that the
+     * first attempt at documenting it here was wrong: the "Allow restricted
+     * settings" item does NOT exist until Android has already refused you once.
+     * The overflow menu on App info is empty before that, so it is not drawn at
+     * all — verified on a Motorola handset, where the three dots this used to
+     * point at simply were not on screen.
+     *
+     * So the real sequence is: try the accessibility switch, be refused, THEN
+     * App info → three dots → "Allow restricted settings", then try again.
      *
      * Installing over `adb` does NOT trip this — the restriction keys off the
      * install source, so a USB install skips it entirely.

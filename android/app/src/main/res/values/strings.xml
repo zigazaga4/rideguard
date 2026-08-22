@@ -16,5 +16,5 @@
     <string name="onboarding_car_body">Two numbers, and that is the whole setup. Use your real figures, not the manufacturer\'s.</string>
 
     <string name="onboarding_permissions_title">One switch to flip</string>
-    <string name="onboarding_permissions_body">RideGuard reads the offer card the same way a screen reader does, which is why Android puts the switch under Accessibility. Nothing leaves your phone.\n\nAndroid locks that switch for apps that did not come from an app store, and says \"Controlled by restricted settings\". The setup screen walks you through unlocking it first.</string>
+    <string name="onboarding_permissions_body">RideGuard reads the offer card the same way a screen reader does, which is why Android puts the switch under Accessibility. Nothing leaves your phone.\n\nAndroid locks that switch for apps that did not come from an app store. Flip it anyway and let Android refuse — being refused once is what makes the unlock appear. The setup screen then walks you through it.</string>
 </resources>

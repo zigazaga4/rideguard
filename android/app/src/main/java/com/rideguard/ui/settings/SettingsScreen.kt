@@ -106,42 +106,14 @@ fun SettingsScreen(
         // ------------------------------------------------------------ setup
         SectionHeader("Setup", "Every card here must say DONE before the HUD appears.")
 
-        // --------------------------------------------------- restricted settings
-        //
-        // FIRST, because until this is cleared the step below physically cannot
-        // be completed. From Android 13, an app that arrived from anywhere but
-        // an app store is barred from having its accessibility service switched
-        // on: the toggle is visible, does nothing, and the only explanation is a
-        // dialog reading "Controlled by restricted settings".
-        //
-        // Hidden once the reader is running, whatever the op check thinks. The
-        // reader being on is proof the restriction is not in the way, and that
-        // is a stronger signal than any query — it also means a driver on a
-        // platform that will not answer never gets a permanent TODO he has no
-        // way to clear.
-        if (BuildConfig.USE_ACCESSIBILITY &&
-            !a11yOn &&
-            restricted != Permissions.RestrictedSettings.NOT_APPLICABLE &&
-            restricted != Permissions.RestrictedSettings.ALLOWED
-        ) {
-            StepCard(
-                title = "Unlock the setting",
-                body = "RideGuard was installed from a browser rather than an app store, so " +
-                    "Android has locked the next switch and will say \"Controlled by " +
-                    "restricted settings\".\n\nTap below, then the three dots in the top " +
-                    "right, then \"Allow restricted settings\". Do that before the step " +
-                    "underneath this one.",
-                actionLabel = "Open RideGuard's app info",
-                done = false,
-                onAction = { context.startActivity(Permissions.appInfoIntent(context)) },
-            )
-        }
-
         if (BuildConfig.USE_ACCESSIBILITY) {
             StepCard(
                 title = "Offer reader",
                 body = "Lets RideGuard read the offer card in Bolt and Uber. Nothing leaves your phone. " +
-                    "Find RideGuard under Installed apps or Downloaded apps and switch it on.",
+                    "Find RideGuard under Downloaded apps or Installed apps and switch it on.\n\n" +
+                    "If Android refuses with \"Restricted setting\", that is expected. Do it " +
+                    "anyway — being refused once is what unlocks the fix, and the card " +
+                    "underneath then walks you through it.",
                 actionLabel = "Open accessibility settings",
                 done = a11yOn,
                 onAction = {
@@ -157,6 +129,40 @@ fun SettingsScreen(
                 onAction = {
                     context.startActivity(Permissions.overlaySettingsIntent(context))
                 },
+            )
+        }
+
+        // ---------------------------------------------------- restricted settings
+        //
+        // AFTER the reader step, not before it, and that ordering is the
+        // platform's rather than a preference. Android hides "Allow restricted
+        // settings" until it has refused the app once — the overflow menu on App
+        // info is empty until then, so it is not drawn at all. Told to unlock
+        // first, the driver goes looking for three dots that are not on screen.
+        // Confirmed on a Motorola handset.
+        //
+        // Gone the moment the reader is running, whatever the op check thinks:
+        // the reader being on is proof the restriction is not in the way, and it
+        // means an inconclusive check can never leave a TODO with no way out.
+        if (BuildConfig.USE_ACCESSIBILITY &&
+            !a11yOn &&
+            restricted != Permissions.RestrictedSettings.NOT_APPLICABLE &&
+            restricted != Permissions.RestrictedSettings.ALLOWED
+        ) {
+            StepCard(
+                title = "Did Android say \"Restricted setting\"?",
+                body = "That happens because RideGuard came from a browser rather than an " +
+                    "app store. The unlock only appears once Android has refused you — " +
+                    "before that the menu is empty, so there are no three dots to tap. " +
+                    "That is why this card is below the switch and not above it.\n\n" +
+                    "1. Tap the switch above and let Android refuse.\n" +
+                    "2. Tap the button below to open RideGuard's app info.\n" +
+                    "3. Tap the three dots in the top right corner.\n" +
+                    "4. Tap \"Allow restricted settings\" and confirm.\n" +
+                    "5. Go back to the switch above. It stays on now.",
+                actionLabel = "Open RideGuard's app info",
+                done = false,
+                onAction = { context.startActivity(Permissions.appInfoIntent(context)) },
             )
         }
 
