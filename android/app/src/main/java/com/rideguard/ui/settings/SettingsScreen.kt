@@ -91,6 +91,7 @@ fun SettingsScreen(
     }
     val overlayOn = remember(resumeTick) { Permissions.canDrawOverlays(context) }
     val batteryOk = remember(resumeTick) { Permissions.isIgnoringBatteryOptimizations(context) }
+    val restricted = remember(resumeTick) { Permissions.restrictedSettings(context) }
 
     Column(
         Modifier
@@ -103,7 +104,38 @@ fun SettingsScreen(
         Text("RideGuard", color = RgColors.Primary, fontSize = 26.sp, fontWeight = FontWeight.Black)
 
         // ------------------------------------------------------------ setup
-        SectionHeader("Setup", "Both of these must say DONE before the HUD appears.")
+        SectionHeader("Setup", "Every card here must say DONE before the HUD appears.")
+
+        // --------------------------------------------------- restricted settings
+        //
+        // FIRST, because until this is cleared the step below physically cannot
+        // be completed. From Android 13, an app that arrived from anywhere but
+        // an app store is barred from having its accessibility service switched
+        // on: the toggle is visible, does nothing, and the only explanation is a
+        // dialog reading "Controlled by restricted settings".
+        //
+        // Hidden once the reader is running, whatever the op check thinks. The
+        // reader being on is proof the restriction is not in the way, and that
+        // is a stronger signal than any query — it also means a driver on a
+        // platform that will not answer never gets a permanent TODO he has no
+        // way to clear.
+        if (BuildConfig.USE_ACCESSIBILITY &&
+            !a11yOn &&
+            restricted != Permissions.RestrictedSettings.NOT_APPLICABLE &&
+            restricted != Permissions.RestrictedSettings.ALLOWED
+        ) {
+            StepCard(
+                title = "Unlock the setting",
+                body = "RideGuard was installed from a browser rather than an app store, so " +
+                    "Android has locked the next switch and will say \"Controlled by " +
+                    "restricted settings\".\n\nTap below, then the three dots in the top " +
+                    "right, then \"Allow restricted settings\". Do that before the step " +
+                    "underneath this one.",
+                actionLabel = "Open RideGuard's app info",
+                done = false,
+                onAction = { context.startActivity(Permissions.appInfoIntent(context)) },
+            )
+        }
 
         if (BuildConfig.USE_ACCESSIBILITY) {
             StepCard(
