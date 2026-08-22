@@ -162,7 +162,11 @@ cat > "$SERVE_DIR/index.html" <<HTML
 </ol>
 HTML
 
-url="http://$ip:$PORT/"
+# The stamp is not decoration. A phone that already holds the landing page in
+# its cache will happily re-render it — including its download link, which
+# names a file this run does not have. That produced a real 404 on a real
+# phone. A URL never requested before cannot come out of a cache.
+url="http://$ip:$PORT/?b=$stamp"
 
 bold "==> Scan this with your phone's camera"
 printf '\n'
@@ -184,9 +188,36 @@ cd "$SERVE_DIR"
 #
 # Foreground on purpose: this process IS the lifetime of the download link.
 cat > server.py <<'PYEOF'
-import functools, http.server, sys
+import functools, glob, http.server, os, sys
+
+# The only APK here. The serve directory is rebuilt from scratch each run, so
+# there is never a second one to confuse this with.
+APK = os.path.basename(glob.glob("*.apk")[0])
+
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    def _rewrite(self):
+        """Point every .apk request at the build we actually have.
+
+        A phone holding an older landing page asks for the filename that page
+        named, which no longer exists because the name carries a timestamp —
+        a 404 on a real phone, mid-install. Rewriting beats keeping old names
+        around: there is exactly one APK here, so a request for one can only
+        mean that one, and answering with a stale binary stays impossible.
+        """
+        path = self.path.split("?", 1)[0]
+        if path.endswith(".apk") and not os.path.isfile("." + path):
+            sys.stderr.write("  (rewrote %s -> %s)\n" % (path, APK))
+            self.path = "/" + APK
+
+    def do_GET(self):
+        self._rewrite()
+        super().do_GET()
+
+    def do_HEAD(self):
+        self._rewrite()
+        super().do_HEAD()
+
     def end_headers(self):
         self.send_header("Cache-Control", "no-store, must-revalidate")
         self.send_header("Pragma", "no-cache")
