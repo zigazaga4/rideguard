@@ -64,12 +64,26 @@ class SettingsRepository(context: Context) {
         fun commission(p: Platform) = doublePreferencesKey("commission_${p.name}")
         fun fareIsNet(p: Platform) = booleanPreferencesKey("fare_is_net_${p.name}")
 
-        // Position and size are remembered PER PLATFORM because Bolt and Uber
-        // lay their offer cards out differently — one saved geometry would be
-        // wrong on one of them.
-        fun posX(p: Platform) = intPreferencesKey("hud_x_${p.name}")
-        fun posY(p: Platform) = intPreferencesKey("hud_y_${p.name}")
-        fun scale(p: Platform) = floatPreferencesKey("hud_scale_${p.name}")
+        /*
+         * ONE saved geometry, not one per platform.
+         *
+         * These used to be keyed by platform — `hud_x_BOLT`, `hud_x_UBER` —
+         * on the reasoning that Bolt and Uber lay their cards out differently.
+         * That reasoning is sound and the implementation was still broken,
+         * because there is exactly one way to set the geometry: "Place the
+         * HUD", tapped in the app, with no offer on screen and therefore no
+         * platform. Every placement was written under `Platform.UNKNOWN`,
+         * while a real Bolt offer read `hud_x_BOLT` — a key nothing ever
+         * wrote. Verified on a device: the driver's placement was saved
+         * faithfully and then never used, on either app.
+         *
+         * Per-platform geometry can come back the day adjust mode can be
+         * entered per platform. Until there is a way to SET two values, there
+         * must not be two keys to read.
+         */
+        val POS_X = intPreferencesKey("hud_x")
+        val POS_Y = intPreferencesKey("hud_y")
+        val SCALE = floatPreferencesKey("hud_scale")
 
         /**
          * Set while the driver is placing the HUD by hand.
@@ -94,17 +108,19 @@ class SettingsRepository(context: Context) {
     val vehicle: Flow<VehicleProfile> = store.data.map { it.toVehicle() }
     val thresholds: Flow<DriverThresholds> = store.data.map { it.toThresholds() }
 
-    fun hudPosition(platform: Platform): Flow<Pair<Int, Int>?> = store.data.map { prefs ->
-        val x = prefs[Keys.posX(platform)]
-        val y = prefs[Keys.posY(platform)]
+    /** Null until the driver has placed the HUD at least once, which is the
+     *  signal to fall back to [OverlayBounds.defaultFor]. */
+    val hudPosition: Flow<Pair<Int, Int>?> = store.data.map { prefs ->
+        val x = prefs[Keys.POS_X]
+        val y = prefs[Keys.POS_Y]
         if (x != null && y != null) x to y else null
     }
 
     /** 1.0 until the driver resizes it. Clamped on read as well as on write,
      *  because a value written by a build with different bounds must not be
      *  able to produce a HUD the size of the screen. */
-    fun hudScale(platform: Platform): Flow<Float> = store.data.map { prefs ->
-        (prefs[Keys.scale(platform)] ?: 1f).coerceIn(HUD_SCALE_MIN, HUD_SCALE_MAX)
+    val hudScale: Flow<Float> = store.data.map { prefs ->
+        (prefs[Keys.SCALE] ?: 1f).coerceIn(HUD_SCALE_MIN, HUD_SCALE_MAX)
     }
 
     val hudAdjustMode: Flow<Boolean> = store.data.map { it[Keys.HUD_ADJUST] ?: false }
@@ -137,21 +153,14 @@ class SettingsRepository(context: Context) {
         }
     }
 
-    suspend fun saveHudPosition(platform: Platform, x: Int, y: Int) {
-        store.edit { p ->
-            p[Keys.posX(platform)] = x
-            p[Keys.posY(platform)] = y
-        }
-    }
-
     /** Written once, when the driver finishes placing the HUD. One edit rather
      *  than three so a crash mid-adjust cannot leave a saved size that belongs
      *  to a different saved position. */
-    suspend fun saveHudLayout(platform: Platform, x: Int, y: Int, scale: Float) {
+    suspend fun saveHudLayout(x: Int, y: Int, scale: Float) {
         store.edit { p ->
-            p[Keys.posX(platform)] = x
-            p[Keys.posY(platform)] = y
-            p[Keys.scale(platform)] = scale.coerceIn(HUD_SCALE_MIN, HUD_SCALE_MAX)
+            p[Keys.POS_X] = x
+            p[Keys.POS_Y] = y
+            p[Keys.SCALE] = scale.coerceIn(HUD_SCALE_MIN, HUD_SCALE_MAX)
         }
     }
 

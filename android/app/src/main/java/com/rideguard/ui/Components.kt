@@ -18,6 +18,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +33,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 /**
  * Shared building blocks.
@@ -263,4 +271,40 @@ fun IconRow(icon: ImageVector, text: String) {
         Spacer(Modifier.padding(horizontal = 5.dp))
         Text(text, color = RgColors.Secondary, fontSize = 12.sp)
     }
+}
+
+/**
+ * A counter that ticks every time this screen comes back to the foreground.
+ *
+ * ## The bug this exists to kill
+ *
+ * Every permission this app needs is granted on a SYSTEM screen, in another
+ * process, with no callback and no broadcast. The only signal we ever get that
+ * something changed is our own Activity being resumed afterwards.
+ *
+ * The settings screen used to read those permissions inside
+ * `remember(refreshTick)` and bump the tick from `LaunchedEffect(Unit)` — which
+ * fires exactly once, when the composable enters composition. Leaving for the
+ * Accessibility screen does not dispose that composition, so coming back
+ * re-entered nothing and re-read nothing. The driver flipped the switch, came
+ * back, and the card still said TODO — with "Place the HUD" still greyed out,
+ * because that button is gated on the same stale value. Verified on an
+ * emulator: service bound, `enabled_accessibility_services` correct, card
+ * still TODO.
+ *
+ * Keying the reads on this instead means they re-run on every ON_RESUME, which
+ * is precisely the moment the answer can have changed.
+ */
+@Composable
+fun rememberResumeTick(): Int {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var tick by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) tick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    return tick
 }

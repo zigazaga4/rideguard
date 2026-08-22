@@ -48,3 +48,6 @@ ios/.build/
 *.keystore
 !debug.keystore
 keystore.properties
+
+# Kotlin build-tool session directory, machine-local
+android/.kotlin/

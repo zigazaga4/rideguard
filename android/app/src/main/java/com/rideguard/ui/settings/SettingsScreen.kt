@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +47,7 @@ import com.rideguard.ui.SectionHeader
 import com.rideguard.ui.SettingSwitch
 import com.rideguard.ui.StepCard
 import com.rideguard.ui.TextField
+import com.rideguard.ui.rememberResumeTick
 import kotlinx.coroutines.launch
 
 /**
@@ -80,16 +80,16 @@ fun SettingsScreen(
 
     var showDeveloper by remember { mutableStateOf(false) }
 
-    // Permission state is read fresh on every recomposition because the user
-    // leaves the app to change it and comes back — there is no callback.
-    var refreshTick by remember { mutableStateOf(0) }
-    val a11yOn = remember(refreshTick) {
+    // Every one of these is granted on a system screen in another process, with
+    // no callback and no broadcast. Coming back to the foreground IS the signal
+    // — so they are re-read on every resume and never cached beyond it. See
+    // [rememberResumeTick] for the stale-TODO bug this replaced.
+    val resumeTick = rememberResumeTick()
+    val a11yOn = remember(resumeTick) {
         Permissions.isAccessibilityServiceEnabled(context, Permissions.ACCESSIBILITY_SERVICE_CLASS)
     }
-    val overlayOn = remember(refreshTick) { Permissions.canDrawOverlays(context) }
-    val batteryOk = remember(refreshTick) { Permissions.isIgnoringBatteryOptimizations(context) }
-
-    LaunchedEffect(Unit) { refreshTick++ }
+    val overlayOn = remember(resumeTick) { Permissions.canDrawOverlays(context) }
+    val batteryOk = remember(resumeTick) { Permissions.isIgnoringBatteryOptimizations(context) }
 
     Column(
         Modifier
@@ -113,7 +113,6 @@ fun SettingsScreen(
                 done = a11yOn,
                 onAction = {
                     context.startActivity(Permissions.accessibilitySettingsIntent())
-                    refreshTick++
                 },
             )
         } else {
@@ -124,7 +123,6 @@ fun SettingsScreen(
                 done = overlayOn,
                 onAction = {
                     context.startActivity(Permissions.overlaySettingsIntent(context))
-                    refreshTick++
                 },
             )
         }
@@ -136,7 +134,6 @@ fun SettingsScreen(
             done = batteryOk,
             onAction = {
                 context.startActivity(Permissions.batteryOptimizationIntent(context))
-                refreshTick++
             },
         )
 
@@ -152,7 +149,7 @@ fun SettingsScreen(
         // touch, and it ends the moment the driver taps Done on the HUD itself.
         SectionHeader(
             "HUD size and position",
-            "Drag it where you want it and pinch to resize. Each app is remembered separately.",
+            "Drag it where you want it and pinch to resize. Bolt and Uber both use what you set here.",
         )
         com.rideguard.ui.SecondaryButton(
             label = "Place the HUD",

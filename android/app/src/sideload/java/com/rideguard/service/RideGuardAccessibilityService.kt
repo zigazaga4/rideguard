@@ -56,7 +56,6 @@ class RideGuardAccessibilityService : AccessibilityService() {
     private lateinit var recorder: OfferRecorder
 
     private var overlay: OverlayHost? = null
-    private var currentPlatform: Platform = Platform.UNKNOWN
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -73,11 +72,10 @@ class RideGuardAccessibilityService : AccessibilityService() {
             useAccessibilityOverlayType = true,
         )
 
-        // Persist wherever and however large the driver leaves it, against the
-        // platform whose card was last on screen.
+        // Persist wherever and however large the driver leaves it.
         overlay?.onLayoutCommitted = { pos, scale ->
             scope.launch {
-                settings.saveHudLayout(currentPlatform, pos.x, pos.y, scale)
+                settings.saveHudLayout(pos.x, pos.y, scale)
                 // Clear the flag too, or Done ends the mode on screen while the
                 // stored state still says "adjusting" — and the next time the
                 // service starts, the driver gets a sample card he never asked
@@ -86,9 +84,20 @@ class RideGuardAccessibilityService : AccessibilityService() {
             }
         }
 
+        // Apply the saved geometry NOW, before anything is shown.
+        //
+        // This used to happen only on the first offer, which meant "Place the
+        // HUD" always opened at the hard-coded default — and then Done wrote
+        // that default straight over whatever the driver had chosen before.
+        // Every restart of this service silently reset his placement.
+        scope.launch { restoreLayout() }
+
         // The driver taps "Place the HUD" in the app; the app flips this flag;
         // this service owns the window and acts on it. No new IPC — both sides
         // already read this store.
+        //
+        // Ordered AFTER the restore above so the sample card cannot appear at
+        // the default position and then jump.
         scope.launch {
             settings.hudAdjustMode.collect { adjusting ->
                 overlay?.setAdjusting(adjusting)
@@ -140,7 +149,6 @@ class RideGuardAccessibilityService : AccessibilityService() {
             Log.v(TAG, "text=${snapshot.flatText.replace('\n', '|').take(400)}")
         }
 
-        currentPlatform = Platform.fromPackage(pkg).takeIf { it != Platform.UNKNOWN } ?: currentPlatform
         recorder.record(snapshot)
         source.submit(snapshot)
     }
@@ -171,7 +179,6 @@ class RideGuardAccessibilityService : AccessibilityService() {
                         "km=${e.totalKm} net=${e.net} verdict=${e.verdict} " +
                         "confidence=${e.offer.parseConfidence}",
                 )
-                restorePositionFor(e.offer.platform)
                 overlay?.show(e)
             }
 
@@ -183,19 +190,15 @@ class RideGuardAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Bolt and Uber lay out differently, so each has its own stored spot AND
-     * its own stored size. `OverlayHost` clamps both on the way in, so a
-     * geometry saved on another handset, another orientation, or by an older
-     * build cannot park the HUD over the Accept button or blow it up past the
-     * screen.
+     * `OverlayHost` clamps both values on the way in, so a geometry saved on
+     * another handset, another orientation, or by an older build cannot park
+     * the HUD over the Accept button or blow it up past the screen.
      */
-    private suspend fun restorePositionFor(platform: Platform) {
-        if (platform == currentPlatform && overlay?.position?.isSet == true) return
-        currentPlatform = platform
-        settings.hudPosition(platform).first()?.let { (x, y) ->
+    private suspend fun restoreLayout() {
+        settings.hudPosition.first()?.let { (x, y) ->
             overlay?.setPosition(OverlayPosition(x, y))
         }
-        overlay?.setScale(settings.hudScale(platform).first())
+        overlay?.setScale(settings.hudScale.first())
     }
 
     private fun teardown() {
